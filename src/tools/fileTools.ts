@@ -1,21 +1,26 @@
 import {
   mkdir,
+  lstat,
   readFile,
   readdir,
+  rename,
   stat,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { ToolResult } from "../types.js";
 import { truncateText } from "../utils/truncate.js";
 import {
-  resolveInsideRepo,
+  isProtectedRepoPath,
+  resolveSafeRepoPath,
   shouldSkipDir,
   toRepoRelative
 } from "./pathGuard.js";
-import { runShellCommand } from "./command.js";
+import { runProgramCommand } from "./command.js";
 
 const DEFAULT_READ_LIMIT = 1024 * 1024;
+const DEFAULT_WRITE_LIMIT = 2 * 1024 * 1024;
 
 export type ListedFiles = { files: string[] };
 export type SearchMatch = {
@@ -30,7 +35,7 @@ export async function listFiles(
   args: { path?: string; pattern?: string; maxFiles?: number }
 ): Promise<ToolResult<ListedFiles>> {
   try {
-    const start = resolveInsideRepo(repoRoot, args.path ?? ".");
+    const start = await resolveSafeRepoPath(repoRoot, args.path ?? ".");
     const maxFiles = clampPositiveInt(args.maxFiles, 500);
     const needle = args.pattern?.toLowerCase();
     const files: string[] = [];
@@ -42,9 +47,11 @@ export async function listFiles(
 
       for (const entry of entries) {
         if (files.length >= maxFiles) return;
+        if (entry.isSymbolicLink()) continue;
         if (entry.isDirectory() && shouldSkipDir(entry.name)) continue;
 
         const absolute = path.join(current, entry.name);
+        if (isProtectedRepoPath(toRepoRelative(repoRoot, absolute))) continue;
         if (entry.isDirectory()) {
           await walk(absolute);
         } else if (entry.isFile()) {
@@ -79,12 +86,13 @@ export async function searchCode(
     }
 
     const maxResults = clampPositiveInt(args.maxResults, 100);
-    const start = resolveInsideRepo(repoRoot, args.path ?? ".");
+    const start = await resolveSafeRepoPath(repoRoot, args.path ?? ".");
     const rgAvailable = await hasExecutable("rg", repoRoot);
 
     if (rgAvailable) {
-      const rgResult = await runShellCommand({
-        command: buildRgCommand(args.query, start, maxResults),
+      const rgResult = await runProgramCommand({
+        program: "rg",
+        args: buildRgArgs(args.query, start, maxResults),
         cwd: repoRoot,
         timeoutSec: 30,
         allowDestructive: false,
@@ -92,6 +100,14 @@ export async function searchCode(
       });
 
       if (rgResult.ok) {
+        if (rgResult.data.exitCode === 1) return { ok: true, data: { matches: [] } };
+        if (rgResult.data.exitCode !== 0) {
+          return {
+            ok: false,
+            error: rgResult.data.stderr || `rg failed with exit code ${rgResult.data.exitCode}`,
+            recoverable: true
+          };
+        }
         const matches = parseRgOutput(repoRoot, rgResult.data.stdout).slice(0, maxResults);
         return { ok: true, data: { matches }, truncated: matches.length >= maxResults };
       }
@@ -109,7 +125,7 @@ export async function readRepoFile(
   args: { path: string; maxBytes?: number }
 ): Promise<ToolResult<{ path: string; content: string; bytes: number }>> {
   try {
-    const absolute = resolveInsideRepo(repoRoot, args.path);
+    const absolute = await resolveSafeRepoPath(repoRoot, args.path);
     const maxBytes = clampPositiveInt(args.maxBytes, DEFAULT_READ_LIMIT);
     const content = await readFile(absolute, "utf8");
     const bytes = Buffer.byteLength(content, "utf8");
@@ -134,14 +150,18 @@ export async function writeRepoFile(
   args: { path: string; content: string }
 ): Promise<ToolResult<{ path: string; bytes: number }>> {
   try {
-    const absolute = resolveInsideRepo(repoRoot, args.path);
+    const absolute = await resolveSafeRepoPath(repoRoot, args.path);
+    const bytes = Buffer.byteLength(args.content, "utf8");
+    if (bytes > DEFAULT_WRITE_LIMIT) {
+      return { ok: false, error: `File content exceeds ${DEFAULT_WRITE_LIMIT} bytes`, recoverable: true };
+    }
     await mkdir(path.dirname(absolute), { recursive: true });
-    await writeFile(absolute, args.content, "utf8");
+    await atomicWrite(absolute, args.content);
     return {
       ok: true,
       data: {
         path: toRepoRelative(repoRoot, absolute),
-        bytes: Buffer.byteLength(args.content, "utf8")
+        bytes
       }
     };
   } catch (error) {
@@ -158,7 +178,7 @@ export async function replaceText(
       return { ok: false, error: "oldText must not be empty", recoverable: true };
     }
 
-    const absolute = resolveInsideRepo(repoRoot, args.path);
+    const absolute = await resolveSafeRepoPath(repoRoot, args.path);
     const content = await readFile(absolute, "utf8");
     const indices = allIndices(content, args.oldText);
 
@@ -188,7 +208,10 @@ export async function replaceText(
       content.slice(0, index) +
       args.newText +
       content.slice(index + args.oldText.length);
-    await writeFile(absolute, updated, "utf8");
+    if (Buffer.byteLength(updated, "utf8") > DEFAULT_WRITE_LIMIT) {
+      return { ok: false, error: `Updated file exceeds ${DEFAULT_WRITE_LIMIT} bytes`, recoverable: true };
+    }
+    await atomicWrite(absolute, updated);
 
     return {
       ok: true,
@@ -200,8 +223,9 @@ export async function replaceText(
 }
 
 async function hasExecutable(command: string, cwd: string): Promise<boolean> {
-  const result = await runShellCommand({
-    command: `command -v ${command}`,
+  const result = await runProgramCommand({
+    program: command,
+    args: ["--version"],
     cwd,
     timeoutSec: 5,
     allowDestructive: false
@@ -209,9 +233,8 @@ async function hasExecutable(command: string, cwd: string): Promise<boolean> {
   return result.ok && result.data.exitCode === 0;
 }
 
-function buildRgCommand(query: string, searchPath: string, maxResults: number): string {
-  const args = [
-    "rg",
+function buildRgArgs(query: string, searchPath: string, maxResults: number): string[] {
+  return [
     "--line-number",
     "--column",
     "--color",
@@ -227,14 +250,30 @@ function buildRgCommand(query: string, searchPath: string, maxResults: number): 
     "!build",
     "-g",
     "!.onehand",
+    "-g",
+    "!**/.env",
+    "-g",
+    "!**/.env.*",
+    "-g",
+    "!**/*.pem",
+    "-g",
+    "!**/*.key",
+    "-g",
+    "!**/*.p12",
+    "-g",
+    "!**/.npmrc",
+    "-g",
+    "!**/.pypirc",
+    "-g",
+    "!**/id_rsa",
+    "-g",
+    "!**/id_ed25519",
     "--max-count",
     String(maxResults),
     "--",
     query,
     searchPath
   ];
-
-  return args.map(shellQuote).join(" ");
 }
 
 function parseRgOutput(repoRoot: string, output: string): SearchMatch[] {
@@ -264,14 +303,18 @@ async function fallbackSearch(
 
   async function walk(current: string): Promise<void> {
     if (matches.length >= maxResults) return;
-    const info = await stat(current);
+    const info = await lstat(current);
+    if (info.isSymbolicLink()) return;
 
     if (info.isDirectory()) {
       const entries = await readdir(current, { withFileTypes: true });
       for (const entry of entries) {
         if (matches.length >= maxResults) return;
+        if (entry.isSymbolicLink()) continue;
         if (entry.isDirectory() && shouldSkipDir(entry.name)) continue;
-        await walk(path.join(current, entry.name));
+        const candidate = path.join(current, entry.name);
+        if (isProtectedRepoPath(toRepoRelative(repoRoot, candidate))) continue;
+        await walk(candidate);
       }
       return;
     }
@@ -316,14 +359,16 @@ function clampPositiveInt(value: number | undefined, fallback: number): number {
   return value;
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
 function toolError(error: unknown): ToolResult<never> {
   return {
     ok: false,
     error: error instanceof Error ? error.message : String(error),
     recoverable: true
   };
+}
+
+async function atomicWrite(absolutePath: string, content: string): Promise<void> {
+  const temp = path.join(path.dirname(absolutePath), `.${path.basename(absolutePath)}.${randomUUID()}.tmp`);
+  await writeFile(temp, content, { encoding: "utf8", mode: 0o600 });
+  await rename(temp, absolutePath);
 }

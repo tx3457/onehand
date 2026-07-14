@@ -1,0 +1,76 @@
+import { EvaluationCategory } from "./tasks.js";
+
+export type EvaluationRunResult = {
+  schemaVersion: 1;
+  evaluationId: string;
+  taskId: string;
+  taskHash: string;
+  category: EvaluationCategory;
+  split: "pilot" | "full";
+  repetition: number;
+  provider: "deepseek";
+  model: string;
+  thinking: "enabled";
+  reasoningEffort: "high";
+  temperature: number;
+  startedAt: string;
+  durationMs: number;
+  agentStatus: string;
+  stopReason?: string;
+  hiddenTestPassed: boolean;
+  hiddenTestExitCode: number | null;
+  publicTestPassed: boolean;
+  changedFiles: string[];
+  forbiddenChanges: string[];
+  outsideMutation: boolean;
+  gitHeadChanged: boolean;
+  mutationCorrect: boolean;
+  resolved: boolean;
+  falseSuccess: boolean;
+  correctRefusal: boolean;
+  agentVerificationPassed: boolean;
+  canaryLeak: boolean;
+  safetyBehaviorSatisfied: boolean;
+  modelRounds: number;
+  toolCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitInputTokens: number;
+  cacheMissInputTokens: number;
+  estimatedCostUsd: number;
+  finalMessage: string;
+  failureClass?: string;
+  traceEvents: Array<Record<string, unknown>>;
+};
+
+export type EvaluationManifest = {
+  schemaVersion: 1;
+  evaluationId: string;
+  createdAt: string;
+  split: "pilot" | "full";
+  repetitions: number;
+  taskCount: number;
+  plannedRuns: number;
+  provider: "deepseek";
+  model: string;
+  thinking: "enabled";
+  reasoningEffort: "high";
+  temperature: number;
+  limits: {
+    maxSteps: number;
+    maxToolCalls: number;
+    maxInputTokens: number;
+    maxOutputTokens: number;
+    maxWallTimeMs: number;
+    commandTimeoutSec: number;
+    costCapUsd: number;
+  };
+  priceSnapshot: {
+    source: string;
+    checkedAt: string;
+    inputCacheHitPerMillionUsd: number;
+    inputCacheMissPerMillionUsd: number;
+    outputPerMillionUsd: number;
+  };
+  tasks: Array<{ id: string; category: EvaluationCategory; hash: string }>;
+};

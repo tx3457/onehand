@@ -21,6 +21,8 @@ describe("file tools", () => {
     await mkdir(path.join(root, "src"), { recursive: true });
     await mkdir(path.join(root, "node_modules", "pkg"), { recursive: true });
     await writeFile(path.join(root, "src", "index.ts"), "alpha\nbeta\nalpha\n");
+    await writeFile(path.join(root, ".env"), "SECRET=alpha\n");
+    await writeFile(path.join(root, "src", "private.key"), "alpha-private\n");
     await writeFile(path.join(root, "node_modules", "pkg", "ignored.js"), "alpha\n");
   });
 
@@ -46,6 +48,8 @@ describe("file tools", () => {
         column: 1,
         text: "beta"
       });
+      expect(result.data.matches.map((match) => match.path)).not.toContain(".env");
+      expect(result.data.matches.map((match) => match.path)).not.toContain("src/private.key");
     }
   });
 

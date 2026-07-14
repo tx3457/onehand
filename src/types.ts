@@ -2,6 +2,58 @@ export type ToolResult<T> =
   | { ok: true; data: T; truncated?: boolean }
   | { ok: false; error: string; recoverable: boolean };
 
+export type RunStatus =
+  | "success"
+  | "failed"
+  | "stopped"
+  | "blocked"
+  | "budget_exhausted"
+  | "cancelled";
+
+export type StopReason =
+  | "explicit_finish"
+  | "model_stopped_without_finish"
+  | "model_error"
+  | "step_budget"
+  | "tool_budget"
+  | "token_budget"
+  | "wall_time_budget"
+  | "blocked"
+  | "cancelled";
+
+export type TokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitInputTokens: number;
+  cacheMissInputTokens: number;
+  totalTokens: number;
+};
+
+export type RunUsage = TokenUsage & {
+  modelRounds: number;
+  toolCalls: number;
+  wallTimeMs: number;
+};
+
+export type PlanStepStatus = "pending" | "in_progress" | "completed" | "blocked";
+
+export type PlanStep = {
+  id: number;
+  description: string;
+  status: PlanStepStatus;
+  evidence?: string;
+};
+
+export type PlanSnapshot = {
+  revision: number;
+  status: "unset" | "active" | "completed" | "blocked";
+  steps: PlanStep[];
+  needsReplan: boolean;
+  writeRevision: number;
+  validatedWriteRevision: number;
+  summary?: string;
+};
+
 export type CommandRecord = {
   command: string;
   exitCode: number | null;
@@ -14,7 +66,8 @@ export type TestRecord = {
 };
 
 export type RunReport = {
-  status: "success" | "failed" | "stopped";
+  status: RunStatus;
+  stopReason?: StopReason;
   task: string;
   repo: string;
   changedFiles: string[];
@@ -22,6 +75,11 @@ export type RunReport = {
   tests: TestRecord[];
   diff: string | null;
   finalMessage: string;
+  usage?: RunUsage;
+  plan?: PlanSnapshot;
+  runId?: string;
+  statePath?: string;
+  tracePath?: string;
 };
 
 export type CommandExecution = {
@@ -39,4 +97,5 @@ export type ToolExecutionContext = {
   testCommand?: string;
   timeoutSec: number;
   allowDestructive: boolean;
+  enforcePlanning?: boolean;
 };
