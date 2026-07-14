@@ -1,0 +1,31 @@
+{
+  "name": "onehand",
+  "version": "0.1.0",
+  "description": "A lightweight local repository coding agent CLI backed by the OpenAI Responses API.",
+  "type": "module",
+  "bin": {
+    "onehand": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "commander": "^14.0.2",
+    "openai": "^6.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
