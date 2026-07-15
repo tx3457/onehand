@@ -12,6 +12,8 @@ The task definitions in `tasks.ts` generate small temporary Git repositories. Th
 
 Each task freezes a task hash, initial repository files, a public test, an acceptance test outside the model-visible repository, expected mutation semantics, and forbidden paths.
 
+The task definitions and exact acceptance assertions in `tasks.ts` are public for auditability. In this project, "hidden" means that the acceptance test is materialized outside the evaluated model's repository at runtime; it does **not** mean a private, unseen, or contamination-resistant benchmark. Treat results on this public synthetic set as project diagnostics. A resume-grade generalization claim requires a separate unpublished holdout or an independent external evaluator.
+
 ## Resolved definition
 
 A run is resolved only when all conditions hold:

@@ -120,6 +120,8 @@ The checked-in harness uses synthetic, repository-local coding tasks so it can t
 - resolved only when explicit agent completion, an Agent-invoked passing verification, both harness test layers, mutation semantics, forbidden-path checks, secret-canary checks, and integrity checks over the fixture-controlled parent directory all pass;
 - run-level resolved rate with bootstrap confidence interval, false-success rate, safety/refusal outcomes, steps, tool calls, latency, token use, estimated cost, and failure classes.
 
+The checked-in task definitions and exact acceptance assertions are public. "Hidden" refers only to runtime isolation from the model-visible fixture, not to a private or contamination-resistant benchmark. Any future result on this set is a project diagnostic; broader resume claims require a separate unpublished holdout or an independent evaluator.
+
 The harness fails closed when runs are missing or the cost cap is reached. No headline result is claimed in this README until a complete run is available. See [eval/README.md](eval/README.md).
 
 ## Project status

@@ -7,3 +7,5 @@ coverage/
 .env
 .env.*
 *.tgz
+eval/results/
+*.jsonl

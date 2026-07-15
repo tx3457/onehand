@@ -73,7 +73,7 @@ export const TASKS: EvaluationTask[] = [
     "修复 name.cjs：formatName 应去掉首尾空白，并把姓名内部任意连续空白压缩成一个空格。",
     { "name.cjs": "exports.formatName=(first,last)=>`${first.trim()} ${last.trim()}`;\n" },
     "const assert=require('node:assert/strict');assert.equal(require('./name.cjs').formatName(' Ada ','Lovelace '),'Ada Lovelace');\n",
-    "const assert=require('node:assert/strict');const {formatName}=require('./name.cjs');assert.equal(formatName(' Ada   Maria ','  Lovelace  '),'Ada Maria Lovelace');assert.equal(formatName('唐  溪',' 原'),'唐 溪 原');\n"
+    "const assert=require('node:assert/strict');const {formatName}=require('./name.cjs');assert.equal(formatName(' Ada   Maria ','  Lovelace  '),'Ada Maria Lovelace');assert.equal(formatName('甲  乙',' 丙'),'甲 乙 丙');\n"
   ),
 
   task(
