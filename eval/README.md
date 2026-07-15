@@ -1,6 +1,13 @@
 # OneHand evaluation protocol
 
-This directory contains a reproducible end-to-end evaluation harness for the coding-agent loop. It is separate from unit tests: unit tests prove deterministic invariants, while this harness measures behavior with a real tool-calling model.
+This directory contains a reproducible end-to-end evaluation harness for the coding-agent loop. Deterministic tests prove selected engineering invariants; the model-backed harness is intended to measure behavior with a real tool-calling model.
+
+## Current evidence status
+
+- Before the P0 evaluation migration, the repository had 43 deterministic unit/integration tests.
+- The current 55-test suite adds 2 no-network OpenAI provider configuration-contract regressions and 10 independent deterministic Agent scenarios.
+- `tests/eval_deterministic_suite.test.ts` uses scripted provider decisions but real local tools and temporary Git repositories. It covers multi-step completion, observation-driven recovery, repeated-failure replanning, false-success rejection, step/tool/token budgets, path/command safety, and bounded provider retries.
+- The real-model `pilot` and `full` protocols below have **not been run for the current public evidence set**. There is therefore no published resolved rate, latency, token cost, or model-quality comparison.
 
 ## Task set
 
@@ -47,12 +54,17 @@ Raw results are JSONL. The manifest freezes model configuration, budgets, prices
 ## Local deterministic checks
 
 ```bash
+npm run eval:deterministic
 npm run eval:test
 ```
+
+The first command runs exactly the 10 Agent scenarios. The second also runs the deterministic unit tests for task definitions, result integrity, and report aggregation. Neither command calls an external model or network service.
 
 ## Model-backed runs
 
 The loader reads only allowlisted DeepSeek variable names from the supplied environment file and never writes the key to the manifest or results.
+
+The commands below document the protocol; they are not evidence that either run has completed.
 
 ```bash
 npm run eval:pilot -- \

@@ -18,7 +18,11 @@ export function createModelProvider(options: {
       client: options.deepSeekClient
     });
   }
-  return new OpenAIResponsesProvider(options.responsesClient);
+  return new OpenAIResponsesProvider({
+    apiKey: options.apiKey,
+    baseURL: options.baseURL,
+    client: options.responsesClient
+  });
 }
 
 export type { ModelProvider, NormalizedToolCall, ProviderRequest, ProviderTurn } from "./types.js";

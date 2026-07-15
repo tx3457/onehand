@@ -15,6 +15,7 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.eval.json --noEmit",
+    "eval:deterministic": "vitest run tests/eval_deterministic_suite.test.ts",
     "eval:test": "vitest run tests/eval_*.test.ts",
     "eval:pilot": "tsx eval/cli.ts --mode pilot",
     "eval:full": "tsx eval/cli.ts --mode full"

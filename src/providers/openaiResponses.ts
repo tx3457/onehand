@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import OpenAI, { type ClientOptions } from "openai";
 import { ModelProvider, NormalizedToolCall, ProviderRequest, ProviderTurn } from "./types.js";
 
 export type ResponsesClient = {
@@ -28,10 +28,27 @@ type ResponseOutputItem = {
   [key: string]: unknown;
 };
 
+export type OpenAIResponsesProviderOptions = {
+  apiKey?: string;
+  baseURL?: string;
+  client?: ResponsesClient;
+};
+
 export class OpenAIResponsesProvider implements ModelProvider {
   readonly name = "openai" as const;
+  private readonly client: ResponsesClient;
 
-  constructor(private readonly client: ResponsesClient = new OpenAI() as unknown as ResponsesClient) {}
+  constructor(options?: OpenAIResponsesProviderOptions | ResponsesClient) {
+    if (isResponsesClient(options)) {
+      this.client = options;
+      return;
+    }
+
+    const sdkOptions: ClientOptions = {};
+    if (options?.apiKey !== undefined) sdkOptions.apiKey = options.apiKey;
+    if (options?.baseURL !== undefined) sdkOptions.baseURL = options.baseURL;
+    this.client = options?.client ?? new OpenAI(sdkOptions) as unknown as ResponsesClient;
+  }
 
   initialHistory(content: string): unknown[] {
     return [{ role: "user", content }];
@@ -80,6 +97,10 @@ export class OpenAIResponsesProvider implements ModelProvider {
   toolResultItem(call: NormalizedToolCall, output: string): unknown {
     return { type: "function_call_output", call_id: call.id, output };
   }
+}
+
+function isResponsesClient(value: OpenAIResponsesProviderOptions | ResponsesClient | undefined): value is ResponsesClient {
+  return typeof value === "object" && value !== null && "responses" in value;
 }
 
 function extractMessage(response: ResponseLike): string {

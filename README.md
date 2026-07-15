@@ -105,11 +105,14 @@ These controls limit the model's direct tools. They do **not** isolate code exec
 npm run typecheck
 npm test
 npm run build
+npm run eval:deterministic
 ```
 
-The current local suite contains 43 deterministic tests covering the core loop, provider normalization, planning/finish gates, budgets, retry behavior, persistence/resume validation, path and command guards, secret redaction, file tools, Git tools, and the evaluation harness.
+The current local suite contains 55 deterministic tests: the 43-test pre-migration baseline, 2 OpenAI provider configuration-contract regressions, and a separate 10-scenario Agent suite. The 10 scenarios exercise multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry against temporary Git fixtures. All providers in these tests are fake or scripted; this is execution-loop evidence, not a real-model success rate.
 
 ## Evaluation protocol
+
+`npm run eval:deterministic` runs the 10 independent, offline Agent scenarios. `npm run eval:test` also includes deterministic tests for the model-backed harness itself.
 
 The checked-in harness uses synthetic, repository-local coding tasks so it can test behavior without exposing private code:
 
@@ -122,7 +125,7 @@ The checked-in harness uses synthetic, repository-local coding tasks so it can t
 
 The checked-in task definitions and exact acceptance assertions are public. "Hidden" refers only to runtime isolation from the model-visible fixture, not to a private or contamination-resistant benchmark. Any future result on this set is a project diagnostic; broader resume claims require a separate unpublished holdout or an independent evaluator.
 
-The harness fails closed when runs are missing or the cost cap is reached. No headline result is claimed in this README until a complete run is available. See [eval/README.md](eval/README.md).
+The harness fails closed when runs are missing or the cost cap is reached. **No real-model pilot or full evaluation has been run for the current public evidence set**, so this README claims no resolved rate, latency, token cost, or model-quality result. See [eval/README.md](eval/README.md).
 
 ## Project status
 
