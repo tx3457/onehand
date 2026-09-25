@@ -1,15 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { agentBehaviorFingerprint } from "../src/agent/fingerprint.js";
+import { AgentProfile, resolveProfile } from "../src/agent/profile.js";
 import { runAgent } from "../src/agent/runner.js";
 import { redactDeep } from "../src/agent/persistence.js";
 import { DeepSeekChatProvider } from "../src/providers/deepseek.js";
 import type { ModelProvider } from "../src/providers/types.js";
+import { InvalidResultError, openResults, runJobs } from "./core.js";
 import { prepareFixture, hashTask, PreparedFixture } from "./fixture.js";
 import { EvaluationTask, tasksFor } from "./tasks.js";
 import { EvaluationManifest, EvaluationRunResult, PriceSnapshot } from "./types.js";
@@ -70,6 +72,8 @@ export type EvaluationRunRequest = {
   apiKey: string;
   baseURL: string;
   model: string;
+  // The same object the manifest's agentFingerprint was computed from.
+  profile: AgentProfile;
   createProvider?: (request: EvaluationRunRequest) => ModelProvider;
 };
 
@@ -79,6 +83,8 @@ export async function runEvaluation(options: EvaluationOptions): Promise<{
   capReached: boolean;
 }> {
   const model = options.model ?? "deepseek-flash";
+  // Resolved once: the fingerprint and every run use this one profile object.
+  const profile = resolveProfile("baseline");
   const costCapUsd = options.costCapUsd ?? 20;
   const priceSnapshot = priceSnapshotFor(model);
   const tasks = tasksFor(options.split).filter((item) => !options.taskIds || options.taskIds.includes(item.id));
@@ -87,18 +93,7 @@ export async function runEvaluation(options: EvaluationOptions): Promise<{
   }
   const evaluationId = `${options.split}-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 6)}`;
   await mkdir(options.outputDir, { recursive: true });
-  const rawPath = path.join(options.outputDir, "results.jsonl");
-  const invalidPath = path.join(options.outputDir, "invalid-results.jsonl");
-  const manifestPath = path.join(options.outputDir, "manifest.json");
-  const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-  // The agent (src/) and the harness that scores it (eval/) are both part of what a resume must not mix.
-  const [agentSourceHash, harnessSourceHash, onehandGitHead, onehandGitDirty] = await Promise.all([
-    sourceFingerprint(new URL("../src/", import.meta.url)),
-    sourceFingerprint(new URL("./", import.meta.url)),
-    gitHead(repoRoot),
-    gitDirty(repoRoot)
-  ]);
-  const srcFingerprint = createHash("sha256").update(`src:${agentSourceHash}\0eval:${harnessSourceHash}`).digest("hex");
+  const provenance = await evaluationProvenance();
   const proposedManifest: EvaluationManifest = {
     schemaVersion: 1,
     evaluationId,
@@ -112,104 +107,82 @@ export async function runEvaluation(options: EvaluationOptions): Promise<{
     thinking: "enabled",
     reasoningEffort: "high",
     temperature: null,
-    agentFingerprint: agentBehaviorFingerprint(),
-    sourceFingerprint: srcFingerprint,
-    gitHead: onehandGitHead,
-    gitDirty: onehandGitDirty,
+    agentFingerprint: agentBehaviorFingerprint(profile),
+    sourceFingerprint: provenance.sourceFingerprint,
+    gitHead: provenance.gitHead,
+    gitDirty: provenance.gitDirty,
     limits: { ...LIMITS, costCapUsd },
     priceSnapshot,
     tasks: tasks.map((item) => ({ id: item.id, category: item.category, hash: hashTask(item) }))
   };
-  const previousManifest = await readManifest(manifestPath);
-  const existing = await readResults(rawPath);
-  if (!previousManifest && existing.length > 0) {
-    throw new Error("Refusing to resume results.jsonl without its original manifest.json");
-  }
-  const manifest = previousManifest ?? proposedManifest;
-  if (previousManifest) assertCompatibleManifest(previousManifest, proposedManifest);
-  else await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  const { manifest, existing, resultsPath, invalidPath } = await openResults<EvaluationManifest, EvaluationRunResult>(
+    options.outputDir, proposedManifest, assertCompatibleManifest
+  );
   validateExistingResults(existing, manifest);
-  const existingKeys = new Set(existing.map((item) => `${item.taskId}#${item.repetition}`));
 
   const jobs = tasks.flatMap((task) => Array.from({ length: options.repetitions }, (_, index) => ({
-    task, repetition: index + 1
-  }))).filter((job) => !existingKeys.has(`${job.task.id}#${job.repetition}`));
-  let cursor = 0;
-  // A thrown run is charged its worst-case cost even though the row itself is recorded at zero,
-  // so rebuilding spent on resume must use the charge that was actually counted against the cap.
-  let spent = existing.reduce((sum, item) => sum + (item.capChargeUsd ?? item.estimatedCostUsd), 0);
-  let reservations = 0;
-  let capReached = false;
+    key: `${task.id}#${index + 1}`, task, repetition: index + 1
+  })));
+  // A run that throws has an unknown cost, so the cap counts it as a worst-case run.
   const worstRunCost = estimateCost({
     cacheHitInputTokens: 0,
     cacheMissInputTokens: LIMITS.maxInputTokens,
     outputTokens: LIMITS.maxOutputTokens
   }, manifest.priceSnapshot);
-  const produced: EvaluationRunResult[] = [];
-
-  const worker = async () => {
-    for (;;) {
-      if (cursor >= jobs.length) return;
-      if (spent + reservations + worstRunCost > costCapUsd) {
-        capReached = true;
-        return;
-      }
-      const job = jobs[cursor++]!;
-      reservations += worstRunCost;
-      let result: EvaluationRunResult;
-      // A run that throws has an unknown cost, so the cap counts it as a worst-case run.
-      let capCharge: number;
-      try {
-        result = await (options.executeRun ?? runOne)({
-          evaluationId: manifest.evaluationId,
-          task: job.task,
-          repetition: job.repetition,
-          apiKey: options.apiKey,
-          baseURL: options.baseURL,
-          model,
-          createProvider: options.createProvider
-        });
-        capCharge = result.estimatedCostUsd;
-      } catch (error) {
-        capCharge = worstRunCost;
-        result = harnessFailure(manifest.evaluationId, job.task, job.repetition, model, error, { capChargeUsd: capCharge });
-      }
-      try {
-        // A row for a different task, repetition, or evaluation must never reach validation as
-        // its own: if it happened to collide with an already-produced key it would fail with a
-        // confusing "Duplicate" error instead of being substituted like any other invalid row.
-        if (result.taskId !== job.task.id || result.repetition !== job.repetition || result.evaluationId !== manifest.evaluationId) {
-          throw new Error(`Result does not match its job: expected ${job.task.id}#${job.repetition}, got ${result.taskId}#${result.repetition}`);
-        }
-        validateExistingResults([...existing, ...produced, result], manifest);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const originalCost: unknown = result?.estimatedCostUsd;
-        const charged = typeof originalCost === "number" && Number.isFinite(originalCost) && originalCost >= 0
-          ? originalCost
-          : worstRunCost;
-        await appendFile(invalidPath, JSON.stringify({ at: new Date().toISOString(), error: message, original: redactDeep(result) }) + "\n", "utf8");
-        result = harnessFailure(manifest.evaluationId, job.task, job.repetition, model, new Error(`Invalid run result: ${message}`), {
-          failureClass: "invalid_result",
-          estimatedCostUsd: charged,
-          capChargeUsd: charged
-        });
-        capCharge = charged;
-        validateExistingResults([...existing, ...produced, result], manifest);
-      }
-      result.capChargeUsd = capCharge;
-      reservations -= worstRunCost;
-      spent += capCharge;
-      produced.push(result);
-      await appendFile(rawPath, JSON.stringify(result) + "\n", "utf8");
+  const { rows, capReached } = await runJobs({
+    evaluationId: manifest.evaluationId,
+    jobs,
+    existing,
+    concurrency: options.concurrency,
+    costCapUsd,
+    reservationUsd: worstRunCost,
+    resultsPath,
+    invalidPath,
+    keyOf: (result) => `${result.taskId}#${result.repetition}`,
+    execute: (job) => (options.executeRun ?? runOne)({
+      evaluationId: manifest.evaluationId,
+      task: job.task,
+      repetition: job.repetition,
+      apiKey: options.apiKey,
+      baseURL: options.baseURL,
+      model,
+      profile,
+      createProvider: options.createProvider
+    }),
+    validate: (results) => validateExistingResults(results, manifest),
+    substitute: (job, error, charge) => harnessFailure(manifest.evaluationId, job.task, job.repetition, model, error,
+      error instanceof InvalidResultError
+        ? { failureClass: "invalid_result", estimatedCostUsd: charge, capChargeUsd: charge }
+        : { capChargeUsd: charge }),
+    onRow: (result) => {
       process.stdout.write(`[eval] ${result.taskId} #${result.repetition}: ${result.resolved ? "resolved" : result.failureClass} cost=$${result.estimatedCostUsd.toFixed(4)}\n`);
     }
-  };
-  await Promise.all(Array.from({ length: Math.max(1, options.concurrency) }, worker));
-  const results = [...existing, ...produced].sort((a, b) =>
+  });
+  const results = rows.sort((a, b) =>
     a.taskId.localeCompare(b.taskId) || a.repetition - b.repetition
   );
   return { manifest, results, capReached };
+}
+
+// The agent (src/) and the harness that scores it (eval/) are both part of what a resume must not mix;
+// gitHead and gitDirty are provenance only.
+export async function evaluationProvenance(): Promise<{
+  sourceFingerprint: string;
+  gitHead: string | null;
+  gitDirty: boolean | null;
+}> {
+  const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+  const [agentSourceHash, harnessSourceHash, onehandGitHead, onehandGitDirty] = await Promise.all([
+    sourceFingerprint(new URL("../src/", import.meta.url)),
+    sourceFingerprint(new URL("./", import.meta.url)),
+    gitHead(repoRoot),
+    gitDirty(repoRoot)
+  ]);
+  return {
+    sourceFingerprint: createHash("sha256").update(`src:${agentSourceHash}\0eval:${harnessSourceHash}`).digest("hex"),
+    gitHead: onehandGitHead,
+    gitDirty: onehandGitDirty
+  };
 }
 
 export function assertCompatibleManifest(existing: EvaluationManifest, proposed: EvaluationManifest): void {
@@ -334,7 +307,8 @@ async function runOne(options: EvaluationRunRequest): Promise<EvaluationRunResul
       retryDelayMs: LIMITS.retryDelayMs,
       enforcePlanning: true,
       persistence: true,
-      runDir: stateDir
+      runDir: stateDir,
+      profile: options.profile
     });
     const usage = report.usage!;
     const usageFields = {
@@ -533,7 +507,8 @@ async function detectOutsideMutation(fixture: PreparedFixture): Promise<boolean>
   return false;
 }
 
-async function readTrace(tracePath?: string): Promise<Array<Record<string, unknown>>> {
+// The run's trace events (already redacted by the run store), or none when the trace is unreadable.
+export async function readTrace(tracePath?: string): Promise<Array<Record<string, unknown>>> {
   if (!tracePath) return [];
   try {
     return (await readFile(tracePath, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => {
@@ -542,25 +517,6 @@ async function readTrace(tracePath?: string): Promise<Array<Record<string, unkno
     });
   } catch {
     return [];
-  }
-}
-
-async function readResults(file: string): Promise<EvaluationRunResult[]> {
-  try {
-    return (await readFile(file, "utf8")).split(/\r?\n/).filter(Boolean)
-      .map((line) => JSON.parse(line) as EvaluationRunResult);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
-}
-
-async function readManifest(file: string): Promise<EvaluationManifest | undefined> {
-  try {
-    return JSON.parse(await readFile(file, "utf8")) as EvaluationManifest;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
   }
 }
 

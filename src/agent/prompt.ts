@@ -16,6 +16,7 @@ export function buildUserPrompt(options: {
   task: string;
   repo: string;
   testCommand?: string;
+  testTargetHint?: string;
 }): string {
   return [
     `Task: ${options.task}`,
@@ -23,6 +24,7 @@ export function buildUserPrompt(options: {
     options.testCommand
       ? `Configured test command: ${options.testCommand}`
       : "No explicit test command was provided; use run_tests auto-detection after edits.",
+    ...(options.testTargetHint ? [`Test targets: ${options.testTargetHint}`] : []),
     "Work autonomously until the task is fixed or a real blocker is proven.",
     "Completion requires finish_task; do not stop after a plain text answer."
   ].join("\n");

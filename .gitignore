@@ -9,3 +9,5 @@ coverage/
 *.tgz
 eval/results/
 *.jsonl
+logs/
+.omc/

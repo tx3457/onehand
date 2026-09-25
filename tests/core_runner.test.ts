@@ -1,16 +1,36 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SYSTEM_PROMPT } from "../src/agent/prompt.js";
 import { categorizeToolFailure, ModelCallError, runAgent } from "../src/agent/runner.js";
+import { APIConnectionError } from "openai";
 import { createModelProvider, ModelProvider, ProviderRequest, ProviderTurn } from "../src/providers/index.js";
-import { runProgramCommand } from "../src/tools/command.js";
-import { ToolResult } from "../src/types.js";
+import { ExecRequest, Executor, PathMapper } from "../src/runtime/executor.js";
+import { runHostGit } from "../src/tools/git.js";
+import { CommandExecution, ToolResult } from "../src/types.js";
 import { cleanupTempDir, git, initGitRepo, makeTempDir } from "./helpers.js";
 
-vi.mock("../src/tools/command.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/tools/command.js")>();
-  return { ...actual, runProgramCommand: vi.fn(actual.runProgramCommand) };
+vi.mock("../src/tools/git.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/tools/git.js")>();
+  return { ...actual, runHostGit: vi.fn(actual.runHostGit) };
 });
+
+// A container-style executor over `repo` that records each request and answers with `reply`.
+function fakeContainer(repo: string, reply: (request: ExecRequest) => ToolResult<CommandExecution> = (request) => ({
+  ok: true,
+  data: { command: request.displayCommand ?? request.program, exitCode: 0, stdout: "", stderr: "", timedOut: false, durationMs: 0, truncated: false }
+})) {
+  const executions: ExecRequest[] = [];
+  const executor: Executor = {
+    kind: "docker",
+    pathMapper: new PathMapper(repo, "/testbed"),
+    run: async (request) => {
+      executions.push(request);
+      return reply(request);
+    }
+  };
+  return { executor, executions };
+}
 
 describe("strict agent runner", () => {
   let repo: string;
@@ -94,6 +114,49 @@ describe("strict agent runner", () => {
     });
     expect(complete).toHaveBeenCalledTimes(3);
     expect(report.status).toBe("success");
+  });
+
+  it("retries dropped connections and records each failed attempt's status, network code, and own timeout", async () => {
+    const failuresIn = async (dir: string) => (await readFile(path.join(dir, "trace.jsonl"), "utf8")).trim().split("\n")
+      .map((line) => JSON.parse(line)).filter((event) => event.event === "model_attempt_failed").map((event) => event.data);
+    // The OpenAI SDK wraps a failed request in APIConnectionError, with the socket's code (if any) on a nested cause.
+    const reset = new APIConnectionError({
+      message: "Connection error.",
+      cause: Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) })
+    });
+    const refused = new APIConnectionError({ message: "Connection error.", cause: new TypeError("fetch failed") });
+    const terminated = Object.assign(new TypeError("terminated"), { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) });
+    const complete = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("server error"), { status: 503 }))
+      .mockRejectedValueOnce(reset)
+      .mockRejectedValueOnce(refused)
+      .mockRejectedValueOnce(terminated)
+      .mockResolvedValue(messageTurn("done"));
+    const recovered = await runAgent({
+      task: "inspect", repoPath: repo, provider: baseProvider(complete), enforcePlanning: false, persistence: true, runDir, retryDelayMs: 1, maxApiAttempts: 5
+    });
+    expect([recovered.status, complete.mock.calls.length]).toEqual(["success", 5]);
+    expect(await failuresIn(runDir)).toEqual([
+      { attempt: 1, retryable: true, name: "Error", status: 503, connectionError: false, timedOut: false },
+      { attempt: 2, retryable: true, name: "Error", code: "UND_ERR_SOCKET", connectionError: true, timedOut: false },
+      { attempt: 3, retryable: true, name: "Error", connectionError: true, timedOut: false },
+      { attempt: 4, retryable: true, name: "TypeError", code: "UND_ERR_SOCKET", connectionError: false, timedOut: false }
+    ]);
+
+    const hangDir = await makeTempDir();
+    try {
+      const hanging = vi.fn((request: ProviderRequest) => new Promise<ProviderTurn>((_resolve, reject) => {
+        request.signal?.addEventListener("abort", () => reject(Object.assign(new Error("Request was aborted."), { name: "AbortError" })));
+      }));
+      const timedOut = await runAgent({
+        task: "inspect", repoPath: repo, provider: baseProvider(hanging), enforcePlanning: true, persistence: true, runDir: hangDir,
+        retryDelayMs: 1, maxApiAttempts: 3, modelTimeoutMs: 50
+      });
+      expect(timedOut.stopReason).toBe("model_error");
+      expect(await failuresIn(hangDir)).toEqual([{ attempt: 1, retryable: true, name: "AbortError", connectionError: false, timedOut: true }]);
+    } finally {
+      await cleanupTempDir(hangDir);
+    }
   });
 
   it("pairs every batched tool call before persisting a tool-budget stop", async () => {
@@ -409,10 +472,9 @@ describe("strict agent runner", () => {
     await writeFile(path.join(repo, "tracked.txt"), "x\n");
     await git(["add", "."], repo);
     await git(["commit", "-m", "initial"], repo);
-    const fingerprintCommands = () => vi.mocked(runProgramCommand).mock.calls
-      .filter(([options]) => options.program === "git" && options.args?.includes("ls-files")).length;
+    const fingerprintCommands = () => vi.mocked(runHostGit).mock.calls.filter(([, args]) => args.includes("ls-files")).length;
     const turns = () => [call("set_plan", { steps: ["inspect"] }, "1"), call("read_file", { path: "tracked.txt" }, "2")];
-    vi.mocked(runProgramCommand).mockClear();
+    vi.mocked(runHostGit).mockClear();
     await runAgent({ task: "inspect", repoPath: repo, provider: scriptedProvider(turns()), enforcePlanning: true, persistence: false, maxSteps: 2 });
     expect(fingerprintCommands()).toBe(0);
     await runAgent({ task: "inspect", repoPath: repo, provider: scriptedProvider(turns()), enforcePlanning: true, persistence: true, runDir, maxSteps: 2 });
@@ -461,6 +523,129 @@ describe("strict agent runner", () => {
     expect(keys[0]).toMatch(/^[a-f0-9]{64}$/);
     expect(failureSignatures[keys[0]!]).toBe(1);
   });
+
+  it("sends the cache-isolation session line, display root, and target hint, and runs tests through the injected executor", async () => {
+    await writeFile(path.join(repo, "tracked.txt"), "x\n");
+    await git(["add", "."], repo);
+    await git(["commit", "-m", "initial"], repo);
+    const { executor, executions } = fakeContainer(repo);
+    const turns = [
+      call("set_plan", { steps: ["verify"] }, "1"),
+      call("read_file", { path: "/testbed/tracked.txt" }, "2"),
+      call("run_tests", { targets: ["/testbed/tests/test_x.py::test_a"] }, "3"),
+      call("update_plan", { stepId: 1, status: "completed", evidence: "targeted test passed" }, "4"),
+      call("finish_task", { summary: "Verified." }, "5")
+    ];
+    const seen: Array<{ instructions: string; prompt: string }> = [];
+    const report = await runAgent({
+      task: "verify",
+      repoPath: repo,
+      testCommand: "python -m pytest",
+      provider: baseProvider(vi.fn(async (request: ProviderRequest) => {
+        seen.push({ instructions: request.instructions, prompt: (request.history[0] as { content: string }).content });
+        return turns.shift() ?? messageTurn("unexpected stop");
+      })),
+      enforcePlanning: true,
+      persistence: true,
+      runDir,
+      executor,
+      displayRoot: "/testbed",
+      testTargetHint: "tests/test_x.py::test_a",
+      allowTargetedVerification: true,
+      cacheIsolationNonce: "cache-nonce-42",
+      profile: { name: "experiment", flags: { lint: true } }
+    });
+    const hostRoot = await realpath(repo);
+    expect(report).toMatchObject({
+      status: "success",
+      tests: [{ command: "python -m pytest /testbed/tests/test_x.py::test_a", passed: true, exitCode: 0 }]
+    });
+    expect(seen[0]!.instructions).toBe(`Session: cache-nonce-42\n\n${SYSTEM_PROMPT}`);
+    expect(seen[0]!.prompt).toContain("Repository root: /testbed\n");
+    expect(seen[0]!.prompt).toContain("Test targets: tests/test_x.py::test_a\n");
+    expect(seen[0]!.prompt).not.toContain(hostRoot);
+    expect(executions).toEqual([expect.objectContaining({
+      program: "python", args: ["-m", "pytest", "/testbed/tests/test_x.py::test_a"], cwd: hostRoot
+    })]);
+    const events = (await readFile(path.join(runDir, "trace.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(events.find((event) => event.event === "tool_result" && event.data.name === "read_file").data.ok).toBe(true);
+    expect(events.find((event) => event.event === "run_started").data).toMatchObject({
+      repo: hostRoot, displayRoot: "/testbed", executor: "docker", profile: "experiment", profileFlags: { lint: true },
+      allowTargetedVerification: true
+    });
+  });
+
+  it("rejects a malformed cache-isolation nonce and a display root the local executor cannot honor", async () => {
+    const provider = scriptedProvider([]);
+    for (const nonce of ["short", "has space-1234", "semi;colon-1234", "x".repeat(65), ""]) {
+      await expect(runAgent({ task: "inspect", repoPath: repo, provider, cacheIsolationNonce: nonce }), nonce)
+        .rejects.toThrow("cacheIsolationNonce must be 8-64 ASCII letters, digits, or hyphens");
+    }
+    await expect(runAgent({ task: "inspect", repoPath: repo, provider, displayRoot: "/testbed", persistence: false }))
+      .rejects.toThrow("A local executor runs commands on the host, so displayRoot must be the repository root");
+  });
+
+  it("stops on an execution environment failure so the harness can retry the run", async () => {
+    await writeFile(path.join(repo, "tracked.txt"), "x\n");
+    await git(["add", "."], repo);
+    await git(["commit", "-m", "initial"], repo);
+    const { executor, executions } = fakeContainer(repo, () => ({
+      ok: false, error: "docker exec failed with exit 125: Error response from daemon: No such container: sweb-1", recoverable: false, code: "environment"
+    }));
+    const turns = [
+      call("set_plan", { steps: ["verify"] }, "1"),
+      call("run_tests", {}, "2"),
+      call("update_plan", { stepId: 1, status: "completed", evidence: "never reached" }, "3")
+    ];
+    const complete = vi.fn(async () => turns.shift() ?? messageTurn("unexpected stop"));
+    const report = await runAgent({
+      task: "verify", repoPath: repo, testCommand: "python -m pytest", provider: baseProvider(complete),
+      enforcePlanning: true, persistence: true, runDir, executor, displayRoot: "/testbed"
+    });
+    expect(report).toMatchObject({
+      status: "failed",
+      stopReason: "runtime_error",
+      finalMessage: "Execution environment failure: docker exec failed with exit 125: Error response from daemon: No such container: sweb-1",
+      tests: []
+    });
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(turns).toHaveLength(1);
+    expect(executions).toHaveLength(1);
+    const events = (await readFile(path.join(runDir, "trace.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(events.find((event) => event.event === "tool_result" && event.data.name === "run_tests").data)
+      .toMatchObject({ ok: false, errorCategory: "environment" });
+    expect(events.find((event) => event.event === "environment_failure").data).toMatchObject({ round: 2, name: "run_tests" });
+    expect(JSON.parse(await readFile(path.join(runDir, "state.json"), "utf8"))).toMatchObject({ status: "failed", stopReason: "runtime_error" });
+  });
+
+  it("keeps the plain system prompt, host repository root, and local executor by default", async () => {
+    const seen: Array<{ instructions: string; prompt: string }> = [];
+    await runAgent({
+      task: "inspect",
+      repoPath: repo,
+      provider: baseProvider(vi.fn(async (request: ProviderRequest) => {
+        seen.push({ instructions: request.instructions, prompt: (request.history[0] as { content: string }).content });
+        return call("set_plan", { steps: ["inspect"] }, "1");
+      })),
+      enforcePlanning: true,
+      persistence: true,
+      runDir,
+      maxSteps: 1
+    });
+    const hostRoot = await realpath(repo);
+    expect(seen[0]!.instructions).toBe(SYSTEM_PROMPT);
+    expect(seen[0]!.prompt).toBe([
+      "Task: inspect",
+      `Repository root: ${hostRoot}`,
+      "No explicit test command was provided; use run_tests auto-detection after edits.",
+      "Work autonomously until the task is fixed or a real blocker is proven.",
+      "Completion requires finish_task; do not stop after a plain text answer."
+    ].join("\n"));
+    const events = (await readFile(path.join(runDir, "trace.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(events.find((event) => event.event === "run_started").data).toMatchObject({
+      repo: hostRoot, displayRoot: hostRoot, executor: "local", profile: "baseline", profileFlags: {}, allowTargetedVerification: false
+    });
+  });
 });
 
 describe("categorizeToolFailure", () => {
@@ -500,7 +685,8 @@ describe("categorizeToolFailure", () => {
       ["missing_tool", failed("Unknown tool: missing_tool"), "unknown_tool"],
       ["finish_task", failed("No plan was set"), "plan_gate"],
       ["run_command", failed("Use the dedicated repository tool instead of run_command: grep"), "policy"],
-      ["update_plan", failed("Unknown plan step: 9"), "other"]
+      ["update_plan", failed("Unknown plan step: 9"), "other"],
+      ["run_tests", { ok: false, error: "docker exec failed with exit 126: OCI runtime exec failed", recoverable: false, code: "environment" }, "environment"]
     ];
     for (const [name, result, expected] of cases) {
       expect(categorizeToolFailure(name, result), `${name}: ${JSON.stringify(result)}`).toBe(expected);

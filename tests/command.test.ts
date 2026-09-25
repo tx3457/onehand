@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { makeTempDir, cleanupTempDir } from "./helpers.js";
-import { isDestructiveCommand, runShellCommand } from "../src/tools/command.js";
+import { isDestructiveCommand, parseCommand, quoteArg, runShellCommand } from "../src/tools/command.js";
 import { createToolRegistry } from "../src/tools/registry.js";
 
 const LARGE_OUTPUT = "node -e \"process.stdout.write('HEAD' + 'x'.repeat(1000) + 'TAIL')\"";
@@ -103,6 +103,13 @@ describe("command runner", () => {
     } finally {
       await cleanupTempDir(repo);
     }
+  });
+
+  it("shell-quotes arguments so that parseCommand reads them back unchanged", () => {
+    const values = ["plain/path.py::test_a", "two words", "it's", "", "a\nb", "$(touch x) `y` | z", "t[a b]", "--k=v", 'q"uote'];
+    expect(values.slice(0, 1).map(quoteArg)).toEqual(["plain/path.py::test_a"]);
+    const parsed = parseCommand(["pytest", ...values].map(quoteArg).join(" "));
+    expect([parsed.program, ...parsed.args]).toEqual(["pytest", ...values]);
   });
 
   it("blocks denied destructive commands", async () => {

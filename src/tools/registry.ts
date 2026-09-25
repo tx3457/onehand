@@ -1,17 +1,25 @@
 import { PlanController } from "../agent/planning.js";
+import { LocalExecutor, PathMapper, resolveDisplayRoot } from "../runtime/executor.js";
 import { ToolExecutionContext, ToolResult } from "../types.js";
 import { safeJsonStringify } from "../utils/truncate.js";
+import { realpathSync } from "node:fs";
 import path from "node:path";
-import { parseCommand, runProgramCommand, runShellCommand } from "./command.js";
+import { commandPolicyError, parseCommand, quoteArg, StructuredCommand } from "./command.js";
 import { listFiles, readRepoFile, replaceText, searchCode, writeRepoFile } from "./fileTools.js";
 import { gitDiff, gitStatus } from "./git.js";
 import { isProtectedRepoPath, resolveSafeRepoPath } from "./pathGuard.js";
 import { JsonSchema, parseAndValidateArgs } from "./schema.js";
 import { detectTestCommand } from "./testCommand.js";
 
+const MAX_TEST_TARGET_LENGTH = 512;
+const TARGETED_RUN_NOTE = "A run with targets does not verify the latest change; run run_tests without targets before finish_task.";
+// Their output comes from a process, not from a repository file, so host paths in it are rewritten.
+const COMMAND_OUTPUT_TOOLS = new Set(["run_command", "run_tests", "git_status", "git_diff"]);
+
 export type ToolExecutionRecord =
   | { type: "command"; command: string; exitCode: number | null }
-  | { type: "test"; command: string; passed: boolean; exitCode: number | null };
+  // command is argv shell-quoted for display: parseCommand(command) gives argv back.
+  | { type: "test"; command: string; argv: string[]; passed: boolean; exitCode: number | null; targets?: string[] };
 
 export type ToolDefinition = {
   type: "function";
@@ -33,6 +41,22 @@ export function createToolRegistry(
 ): ToolRegistry {
   const records: ToolExecutionRecord[] = [];
   const plan = context.plan ?? new PlanController();
+  // A lexical and a symlinked root name the same checkout; every check and mapping uses its realpath.
+  const repoRoot = realpathSync(context.repoRoot);
+  const executor = context.executor ?? new LocalExecutor();
+  resolveDisplayRoot(executor, repoRoot, context.displayRoot);
+  const paths = executor.pathMapper;
+  const isolatedGit = executor.kind === "docker";
+  // Error text (ENOENT, escapes-root) and command output can name host paths; the model only ever sees
+  // display paths. Only a whole path matches: neither /host/repo2 nor /x/host/repo is the host root.
+  const escapedHostRoot = paths.hostRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hostRootInText = new RegExp(`(?<![\\w.-])${escapedHostRoot}(?![\\w.-])`, "g");
+  const scrub = (value: unknown): unknown => typeof value === "string"
+    ? value.replace(hostRootInText, () => paths.displayRoot)
+    : Array.isArray(value) ? value.map(scrub)
+      : value && typeof value === "object"
+        ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, scrub(item)]))
+        : value;
   const registry: ToolRegistry = {
     definitions: TOOL_DEFINITIONS,
     records,
@@ -67,46 +91,46 @@ export function createToolRegistry(
         if (!authorization.ok) return authorization;
       }
 
+      // A model-visible path such as /testbed/x.py names the host checkout before any path check.
+      const fileArgs = typeof args.path === "string" ? { ...args, path: paths.toHost(args.path) } : args;
       let result: ToolResult<unknown>;
       switch (name) {
         case "list_files":
-          result = await listFiles(context.repoRoot, args as any);
+          result = await listFiles(repoRoot, fileArgs as any);
           break;
         case "search_code":
-          result = await searchCode(context.repoRoot, args as any);
+          result = await searchCode(repoRoot, fileArgs as any);
           break;
         case "read_file":
-          result = await readRepoFile(context.repoRoot, args as any);
+          result = await readRepoFile(repoRoot, fileArgs as any);
           break;
         case "write_file":
-          result = await writeRepoFile(context.repoRoot, args as any);
+          result = await writeRepoFile(repoRoot, fileArgs as any);
           if (result.ok) plan.recordWrite();
           break;
         case "replace_text":
-          result = await replaceText(context.repoRoot, args as any);
+          result = await replaceText(repoRoot, fileArgs as any);
           if (result.ok) plan.recordWrite();
           break;
         case "run_command": {
+          const program = args.program as string;
+          const commandArgs = (args.args as string[] | undefined) ?? [];
           let cwd: string;
           try {
-            cwd = await resolveSafeRepoPath(context.repoRoot, (args.cwd as string | undefined) ?? ".");
-          await validateCommandPaths(
-            context.repoRoot,
-            cwd,
-            args.program as string,
-            (args.args as string[] | undefined) ?? [],
-            true
-          );
+            cwd = await resolveSafeRepoPath(repoRoot, paths.toHost((args.cwd as string | undefined) ?? "."));
+            await validateCommandPaths(repoRoot, cwd, program, commandArgs, paths, true);
+            assertCommandPolicy(program, commandArgs, context.allowDestructive);
           } catch (error) {
             result = failure(error instanceof Error ? error.message : String(error));
             break;
           }
-          const execution = await runProgramCommand({
-            program: args.program as string,
-            args: (args.args as string[] | undefined) ?? [],
+          // The arguments stay exactly as the model wrote them: the executor's own mapper validated them,
+          // and display paths are valid where it runs them.
+          const execution = await executor.run({
+            program,
+            args: commandArgs,
             cwd,
             timeoutSec: (args.timeoutSec as number | undefined) ?? context.timeoutSec,
-            allowDestructive: context.allowDestructive,
             truncation: "head_tail"
           });
           if (execution.ok) {
@@ -117,44 +141,60 @@ export function createToolRegistry(
           break;
         }
         case "run_tests": {
-          const command = context.testCommand ?? (await detectTestCommand(context.repoRoot));
+          const command = context.testCommand ?? (await detectTestCommand(repoRoot));
           if (!command) {
             result = failure("No test command found. Pass --test or provide a command.");
             break;
           }
+          const targets = (args.targets as string[] | undefined) ?? [];
+          let parsed: StructuredCommand;
           try {
-            const parsed = parseCommand(command);
-            await validateCommandPaths(context.repoRoot, context.repoRoot, parsed.program, parsed.args);
+            parsed = parseCommand(command);
+            // An operator-trusted base command (tox, ./tests/runtests.py, ...) is outside the model policy.
+            if (!context.trustedTestCommand) {
+              await validateCommandPaths(repoRoot, repoRoot, parsed.program, parsed.args, paths);
+              assertCommandPolicy(parsed.program, parsed.args, context.allowDestructive);
+            }
+            for (const target of targets) await validateTestTarget(repoRoot, target, paths);
           } catch (error) {
             result = failure(error instanceof Error ? error.message : String(error));
             break;
           }
-          const execution = await runShellCommand({
-            command,
-            cwd: context.repoRoot,
+          const argv = [parsed.program, ...parsed.args, ...targets];
+          const displayCommand = [command, ...targets.map(quoteArg)].join(" ");
+          const execution = await executor.run({
+            program: parsed.program,
+            args: argv.slice(1),
+            cwd: repoRoot,
             timeoutSec: (args.timeoutSec as number | undefined) ?? context.timeoutSec,
-            allowDestructive: context.allowDestructive,
-            truncation: "head_tail"
+            truncation: "head_tail",
+            displayCommand
           });
           if (execution.ok) {
             const passed = execution.data.exitCode === 0 && !execution.data.timedOut;
-            records.push({ type: "test", command, passed, exitCode: execution.data.exitCode });
+            // A subset run verifies the latest change only where the operator allows it (SWE-bench).
+            const subsetOnly = targets.length > 0 && !context.allowTargetedVerification;
+            const targetData = targets.length ? { targets } : {};
+            records.push({ type: "test", command: displayCommand, argv, passed, exitCode: execution.data.exitCode, ...targetData });
             plan.recordWrite();
-            plan.recordValidation(passed);
-            result = { ok: true, data: { ...execution.data, passed }, truncated: execution.truncated };
+            plan.recordValidation(passed && !subsetOnly);
+            const gate = subsetOnly ? { verifiesLatestChange: false, note: TARGETED_RUN_NOTE } : {};
+            result = { ok: true, data: { ...execution.data, passed, ...targetData, ...gate }, truncated: execution.truncated };
           } else result = execution;
           break;
         }
         case "git_status":
-          result = await gitStatus(context.repoRoot, context.timeoutSec);
+          result = await gitStatus(repoRoot, context.timeoutSec, isolatedGit);
           break;
         case "git_diff":
-          result = await gitDiff(context.repoRoot, context.timeoutSec);
+          result = await gitDiff(repoRoot, context.timeoutSec, isolatedGit);
           break;
         default:
           result = failure(`Unknown tool: ${name}`);
       }
-      return result;
+      if (paths.hostRoot === paths.displayRoot) return result;
+      if (!result.ok) return { ...result, error: scrub(result.error) as string };
+      return COMMAND_OUTPUT_TOOLS.has(name) ? { ...result, data: scrub(result.data) } : result;
     }
   };
   return registry;
@@ -234,8 +274,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: "function", name: "run_tests",
-    description: "Run the configured, explicit, or auto-detected verification command without shell operators.",
-    parameters: { type: "object", properties: { timeoutSec: { type: "integer", minimum: 1, maximum: 600 } }, additionalProperties: false }
+    description: "Run the configured verification command. Optionally pass targets (test file paths, pytest node ids, or framework test labels such as Django dotted labels) to run a subset.",
+    parameters: {
+      type: "object", properties: { targets: { type: "array", items: { type: "string" }, maxItems: 32 }, timeoutSec: { type: "integer", minimum: 1, maximum: 600 } },
+      additionalProperties: false
+    }
   },
   { type: "function", name: "git_status", description: "Return git status --short.", parameters: emptyObject },
   { type: "function", name: "git_diff", description: "Return the current working tree diff.", parameters: emptyObject }
@@ -245,11 +288,35 @@ function failure(error: string): ToolResult<never> {
   return { ok: false, error, recoverable: true };
 }
 
+function assertCommandPolicy(program: string, args: string[], allowDestructive: boolean): void {
+  const policyError = commandPolicyError(program, args, allowDestructive);
+  if (policyError) throw new Error(policyError);
+}
+
+// Targets are appended to the verification argv, so each must be a test path, node id, or label.
+async function validateTestTarget(repoRoot: string, target: string, paths: PathMapper): Promise<void> {
+  if (target.trim() === "" || target.length > MAX_TEST_TARGET_LENGTH) {
+    throw new Error(`Test targets must be non-empty and at most ${MAX_TEST_TARGET_LENGTH} characters`);
+  }
+  if (target.includes("\0")) throw new Error("Test targets must not contain NUL bytes");
+  // "@file" reads arguments from a file in pytest 8.2+ and argparse-based runners.
+  if (target.startsWith("-") || target.startsWith("@")) throw new Error(`Test target options are disabled: ${target}`);
+  // Every path-like piece and every bare name, before normalization can drop one (tests/.git/.. is tests).
+  if (isProtectedRepoPath(target.replace(/[:=,]/g, "/"))) {
+    throw new Error(`Protected repository path is not accessible from test targets: ${target}`);
+  }
+  const file = target.split("::")[0]!;
+  if (target.includes("/") || file.endsWith(".py") || file === "..") {
+    await resolveSafeRepoPath(repoRoot, paths.toHost(file));
+  }
+}
+
 async function validateCommandPaths(
   repoRoot: string,
   cwd: string,
   program: string,
   args: string[],
+  paths: PathMapper,
   modelSelected = false
 ): Promise<void> {
   const base = path.basename(program).toLowerCase();
@@ -277,7 +344,7 @@ async function validateCommandPaths(
       optionValue.startsWith(`..${path.sep}`) || optionValue.includes(`${path.sep}..${path.sep}`) ||
       fileConsumers.has(base) || !arg.startsWith("-");
     if (!shouldValidate) continue;
-    const absolute = path.isAbsolute(optionValue) ? optionValue : path.resolve(cwd, optionValue);
+    const absolute = path.isAbsolute(optionValue) ? paths.toHost(optionValue) : path.resolve(cwd, optionValue);
     await resolveSafeRepoPath(repoRoot, absolute);
   }
 }

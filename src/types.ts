@@ -1,6 +1,9 @@
+import type { Executor } from "./runtime/executor.js";
+
 export type ToolResult<T> =
   | { ok: true; data: T; truncated?: boolean }
-  | { ok: false; error: string; recoverable: boolean };
+  // code "environment": the execution environment failed (e.g. the container is gone), not the command.
+  | { ok: false; error: string; recoverable: boolean; code?: "environment" };
 
 export type RunStatus =
   | "success"
@@ -101,4 +104,13 @@ export type ToolExecutionContext = {
   timeoutSec: number;
   allowDestructive: boolean;
   enforcePlanning?: boolean;
+  executor?: Executor;
+  // The repository root as the model sees it (e.g. /testbed). It must match the executor's path mapper;
+  // a local executor accepts only the repository root.
+  displayRoot?: string;
+  // The operator-configured test command skips the model command policy; targets are still validated.
+  trustedTestCommand?: boolean;
+  // Whether a passing run_tests with targets verifies the latest change. Off by default: a subset run
+  // is recorded, but finish_task then needs an untargeted pass.
+  allowTargetedVerification?: boolean;
 };

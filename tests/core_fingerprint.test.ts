@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fingerprintOf } from "../src/agent/fingerprint.js";
+import { agentBehaviorFingerprint, fingerprintOf } from "../src/agent/fingerprint.js";
+import { PROFILES, resolveProfile } from "../src/agent/profile.js";
 
 describe("fingerprintOf", () => {
   it("changes when any single part changes", () => {
@@ -14,5 +15,28 @@ describe("fingerprintOf", () => {
     const fingerprint = fingerprintOf({ a: 1, b: 2 });
     expect(fingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(fingerprintOf({ b: 2, a: 1 })).toBe(fingerprint);
+  });
+});
+
+describe("agentBehaviorFingerprint", () => {
+  it("includes the agent profile name and flags and stays stable", () => {
+    const baseline = agentBehaviorFingerprint();
+    expect(baseline).toMatch(/^[a-f0-9]{64}$/);
+    expect(agentBehaviorFingerprint()).toBe(baseline);
+    expect(agentBehaviorFingerprint(PROFILES.baseline)).toBe(baseline);
+    expect(agentBehaviorFingerprint({ name: "baseline", flags: {} })).toBe(baseline);
+    expect(agentBehaviorFingerprint({ name: "variant", flags: {} })).not.toBe(baseline);
+    const flagged = agentBehaviorFingerprint({ name: "baseline", flags: { lint: true, budget: 2 } });
+    expect(flagged).not.toBe(baseline);
+    expect(agentBehaviorFingerprint({ name: "baseline", flags: { budget: 2, lint: true } })).toBe(flagged);
+    expect(agentBehaviorFingerprint({ name: "baseline", flags: { lint: false, budget: 2 } })).not.toBe(flagged);
+  });
+
+  it("resolves only defined profiles", () => {
+    expect(resolveProfile("baseline")).toBe(PROFILES.baseline);
+    expect(PROFILES.baseline).toEqual({ name: "baseline", flags: {} });
+    for (const name of ["missing", "constructor", "toString", "__proto__"]) {
+      expect(() => resolveProfile(name), name).toThrow(`Unknown agent profile: ${name}`);
+    }
   });
 });

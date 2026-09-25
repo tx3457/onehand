@@ -18,7 +18,10 @@
     "eval:deterministic": "vitest run tests/eval_deterministic_suite.test.ts",
     "eval:test": "vitest run tests/eval_*.test.ts",
     "eval:pilot": "tsx eval/cli.ts --mode pilot",
-    "eval:full": "tsx eval/cli.ts --mode full"
+    "eval:full": "tsx eval/cli.ts --mode full",
+    "eval:swebench": "tsx eval/swebench/cli.ts",
+    "eval:compare": "tsx eval/compare.ts",
+    "eval:analyze": "tsx eval/analyze.ts"
   },
   "dependencies": {
     "commander": "^14.0.2",

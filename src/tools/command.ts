@@ -1,7 +1,6 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
+import { LocalExecutor } from "../runtime/executor.js";
 import { CommandExecution, ToolResult } from "../types.js";
-import { DEFAULT_TOOL_OUTPUT_LIMIT, truncateText } from "../utils/truncate.js";
 
 const SHELL_META = new Set(["|", "&", ";", ">", "<", "\n", "\r"]);
 const NETWORK_PROGRAMS = new Set([
@@ -28,7 +27,7 @@ const PACKAGE_MUTATIONS: Record<string, Set<string>> = {
 const GIT_ALLOWED = new Set([
   "status", "diff", "log", "show", "rev-parse", "ls-files", "grep", "branch"
 ]);
-const SAFE_ENV_KEYS = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM", "CI"];
+const localExecutor = new LocalExecutor();
 
 export type StructuredCommand = { program: string; args: string[] };
 
@@ -90,6 +89,11 @@ export function parseCommand(command: string): StructuredCommand {
   return { program: tokens[0]!, args: tokens.slice(1) };
 }
 
+// Shell-quotes one argument so that parseCommand reads it back unchanged.
+export function quoteArg(value: string): string {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
 export function isDestructiveCommand(command: string): boolean {
   try {
     const parsed = parseCommand(command);
@@ -136,64 +140,20 @@ export async function runProgramCommand(options: {
   truncation?: "head" | "head_tail";
 }): Promise<ToolResult<CommandExecution>> {
   const args = options.args ?? [];
-  const policyError = commandPolicyError(options.program, args);
-  if (policyError && !(options.allowDestructive && policyError.startsWith("Destructive"))) {
-    return failure(policyError);
-  }
-
-  const outputLimitBytes = options.outputLimitBytes ?? DEFAULT_TOOL_OUTPUT_LIMIT;
-  const truncation = options.truncation ?? "head";
-  const started = Date.now();
-  const command = options.displayCommand ?? [options.program, ...args].join(" ");
-
-  return new Promise((resolve) => {
-    const child = spawn(options.program, args, {
-      cwd: options.cwd,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: safeEnvironment()
-    });
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let timedOut = false;
-    let settled = false;
-
-    const finish = (result: ToolResult<CommandExecution>) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
-    };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 1_000).unref();
-    }, Math.max(1, options.timeoutSec) * 1_000);
-
-    child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
-    child.on("error", (error) => finish(failure(error.message)));
-    child.on("close", (code) => {
-      const stdout = truncateText(Buffer.concat(stdoutChunks).toString("utf8"), outputLimitBytes, truncation);
-      const stderr = truncateText(Buffer.concat(stderrChunks).toString("utf8"), outputLimitBytes, truncation);
-      finish({
-        ok: true,
-        data: {
-          command,
-          exitCode: timedOut ? null : code,
-          stdout: stdout.text,
-          stderr: stderr.text,
-          timedOut,
-          durationMs: Date.now() - started,
-          truncated: stdout.truncated || stderr.truncated
-        },
-        truncated: stdout.truncated || stderr.truncated
-      });
-    });
+  const policyError = commandPolicyError(options.program, args, options.allowDestructive);
+  if (policyError) return failure(policyError);
+  return localExecutor.run({
+    program: options.program,
+    args,
+    cwd: options.cwd,
+    timeoutSec: options.timeoutSec,
+    outputLimitBytes: options.outputLimitBytes,
+    truncation: options.truncation,
+    displayCommand: options.displayCommand
   });
 }
 
-function commandPolicyError(program: string, args: string[]): string | null {
+export function commandPolicyError(program: string, args: string[], allowDestructive = false): string | null {
   const base = path.basename(program).toLowerCase();
   const first = args[0]?.toLowerCase() ?? "";
   if (program !== base && (path.isAbsolute(program) || /[\\/]/.test(program))) {
@@ -203,7 +163,7 @@ function commandPolicyError(program: string, args: string[]): string | null {
   if (NETWORK_PROGRAMS.has(base) || base === "npx") return `Network-capable command is disabled: ${base}`;
   if (SHELL_PROGRAMS.has(base)) return `Shell interpreters are disabled: ${base}`;
   if (new Set(["sudo", "su", "rm", "mkfs", "dd", "shutdown", "reboot"]).has(base)) {
-    return `Destructive command is disabled: ${base}`;
+    return allowDestructive ? null : `Destructive command is disabled: ${base}`;
   }
   if (PACKAGE_MUTATIONS[base]?.has(first)) return `Dependency or environment mutation is disabled: ${base} ${first}`;
   if (base === "git" && !GIT_ALLOWED.has(first)) return `Git mutation or network operation is disabled: git ${first || "<none>"}`;
@@ -211,14 +171,6 @@ function commandPolicyError(program: string, args: string[]): string | null {
     return "Git branch mutation is disabled";
   }
   return null;
-}
-
-function safeEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of SAFE_ENV_KEYS) {
-    if (process.env[key] !== undefined) env[key] = process.env[key];
-  }
-  return env;
 }
 
 function failure(error: string): ToolResult<never> {

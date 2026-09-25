@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { bootstrapMeanCi, mean, percentile, sum } from "./stats.js";
 import { EvaluationManifest, EvaluationRunResult } from "./types.js";
 
 export type EvaluationSummary = ReturnType<typeof summarize>;
@@ -150,38 +151,10 @@ function stats(values: number[]) {
   return { mean: mean(values), p50: percentile(sorted, 0.5), p95: percentile(sorted, 0.95), max: sorted.at(-1) ?? 0 };
 }
 
-function percentile(sorted: number[], p: number): number {
-  if (!sorted.length) return 0;
-  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * p) - 1))]!;
-}
-
-function bootstrapMeanCi(values: number[], samples = 4000): [number, number] {
-  if (!values.length) return [0, 0];
-  const random = mulberry32(20260714 + values.length);
-  const boot: number[] = [];
-  for (let i = 0; i < samples; i += 1) {
-    let total = 0;
-    for (let j = 0; j < values.length; j += 1) total += values[Math.floor(random() * values.length)]!;
-    boot.push(total / values.length);
-  }
-  boot.sort((a, b) => a - b);
-  return [percentile(boot, 0.025), percentile(boot, 0.975)];
-}
-
 function taskClusterBootstrapCi(results: EvaluationRunResult[]): [number, number] {
   const taskMeans = Object.values(groupBy(results, (item) => item.taskId))
     .map((items) => mean(items.map((item) => item.resolved ? 1 : 0)));
   return bootstrapMeanCi(taskMeans);
-}
-
-function mulberry32(seed: number): () => number {
-  return () => {
-    seed |= 0;
-    seed = seed + 0x6D2B79F5 | 0;
-    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
 }
 
 function isFailedToolEvent(event: Record<string, unknown>): boolean {
@@ -206,7 +179,5 @@ function rate<T>(items: T[], predicate: (item: T) => boolean): number {
   return items.length ? items.filter(predicate).length / items.length : 0;
 }
 
-function mean(values: number[]): number { return values.length ? sum(values) / values.length : 0; }
-function sum(values: number[]): number { return values.reduce((a, b) => a + b, 0); }
 function pct(value: number): string { return `${(value * 100).toFixed(1)}%`; }
 function fmt(value: number): string { return value.toFixed(1); }

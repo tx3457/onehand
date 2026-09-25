@@ -2,17 +2,19 @@ import { createHash } from "node:crypto";
 import { lstat, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { APIConnectionError } from "openai";
 import { PlanController } from "./planning.js";
 import { PersistedRunState, RUN_STATE_VERSION, RunStore, summarizeToolArguments } from "./persistence.js";
+import { AgentProfile, PROFILES } from "./profile.js";
 import { buildUserPrompt, SYSTEM_PROMPT } from "./prompt.js";
 import { createModelProvider } from "../providers/index.js";
 import type { ModelProvider, NormalizedToolCall, ResponsesClient } from "../providers/index.js";
+import { Executor, LocalExecutor, resolveDisplayRoot } from "../runtime/executor.js";
 import { PlanSnapshot, RunReport, RunStatus, RunUsage, StopReason, ToolResult } from "../types.js";
 import { createToolRegistry, serializeToolResult } from "../tools/registry.js";
-import { gitDiff, gitStatus } from "../tools/git.js";
+import { gitDiff, gitStatus, HOST_DIFF_FLAGS, HostGitOptions, runHostGit } from "../tools/git.js";
 import { normalizeRepoRoot } from "../tools/pathGuard.js";
 import { isProtectedRepoPath, resolveInsideRepo, shouldSkipDir } from "../tools/pathGuard.js";
-import { runProgramCommand } from "../tools/command.js";
 import { detectTestCommand } from "../tools/testCommand.js";
 
 export type { ResponsesClient } from "../providers/index.js";
@@ -47,6 +49,16 @@ export type RunAgentOptions = {
   resume?: string;
   signal?: AbortSignal;
   client?: ResponsesClient;
+  executor?: Executor;
+  // The repository root as the model sees it, e.g. /testbed for a container bind mount.
+  displayRoot?: string;
+  trustedTestCommand?: boolean;
+  // Whether a passing run_tests with targets verifies the latest change; SWE-bench runs set it.
+  allowTargetedVerification?: boolean;
+  testTargetHint?: string;
+  // Fills CACHE_ISOLATION_TEMPLATE ahead of the system prompt so runs do not share a provider prompt cache.
+  cacheIsolationNonce?: string;
+  profile?: AgentProfile;
 };
 
 const DEFAULT_USAGE: RunUsage = {
@@ -62,6 +74,14 @@ const DEFAULT_USAGE: RunUsage = {
 };
 export const TEXT_ONLY_NUDGE = "A plain assistant message does not complete the task. Call the next tool you need, or call finish_task once every plan step is complete and the latest change is verified.";
 export const OUTPUT_LIMIT_NUDGE = "Your previous response hit the output limit before any tool call. Continue by calling the next tool you need; keep reasoning brief.";
+// Only the nonce varies between runs; the behavior fingerprint covers this fixed template.
+export const CACHE_ISOLATION_TEMPLATE = "Session: <nonce>";
+const CACHE_ISOLATION_NONCE = /^[A-Za-z0-9-]{8,64}$/;
+// A dropped, refused, or timed-out connection, as Node's sockets and undici (under fetch) report it.
+export const NETWORK_ERROR_CODES: readonly string[] = [
+  "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED", "EPIPE", "ENETUNREACH", "EHOSTUNREACH",
+  "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"
+];
 const TOOL_FAILURE_CATEGORIES: Array<[string, RegExp]> = [
   ["timeout", /timed out/i],
   ["schema", /not valid JSON|must be (one of|an object|an array|a string|a boolean|a number|an integer|>=|<=)|is required|\.\S+ is not allowed|must contain at (least|most)/],
@@ -89,7 +109,12 @@ export class RuntimeFailure extends Error {
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
+  if (options.cacheIsolationNonce !== undefined && !CACHE_ISOLATION_NONCE.test(options.cacheIsolationNonce)) {
+    throw new Error("cacheIsolationNonce must be 8-64 ASCII letters, digits, or hyphens");
+  }
   const repoRoot = await normalizeRepoRoot(options.repoPath);
+  const executor = options.executor ?? new LocalExecutor();
+  const displayRoot = resolveDisplayRoot(executor, repoRoot, options.displayRoot);
   const providerName = options.provider?.name ?? options.providerName ?? "openai";
   const provider = options.provider ?? createModelProvider({
     provider: providerName,
@@ -113,9 +138,11 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     maxApiAttempts: options.maxApiAttempts ?? 3,
     retryDelayMs: options.retryDelayMs ?? 1_000
   };
-  const gitHead = await readGitHead(repoRoot, limits.timeoutSec);
+  // Commands in a container can write the checkout that host git reads, so no global or system config.
+  const git: HostGitOptions = { timeoutSec: limits.timeoutSec, isolatedConfig: executor.kind === "docker" };
+  const gitHead = await readGitHead(repoRoot, git);
   const worktreeFingerprint = options.resume
-    ? await readWorktreeFingerprint(repoRoot, limits.timeoutSec, gitHead)
+    ? await readWorktreeFingerprint(repoRoot, gitHead, git)
     : null;
 
   let store: RunStore | undefined;
@@ -138,19 +165,29 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
 
   const plan = new PlanController(restored?.plan);
   const verificationCommand = options.testCommand ?? await detectTestCommand(repoRoot) ?? "";
+  const profile = options.profile ?? PROFILES.baseline;
+  const allowTargetedVerification = options.allowTargetedVerification ?? false;
+  const instructions = options.cacheIsolationNonce
+    ? `${CACHE_ISOLATION_TEMPLATE.replace("<nonce>", options.cacheIsolationNonce)}\n\n${SYSTEM_PROMPT}`
+    : SYSTEM_PROMPT;
   const registry = createToolRegistry({
     repoRoot,
     testCommand: verificationCommand,
     timeoutSec: limits.timeoutSec,
     allowDestructive: options.allowDestructive ?? false,
     enforcePlanning,
-    plan
+    plan,
+    executor,
+    displayRoot,
+    trustedTestCommand: options.trustedTestCommand,
+    allowTargetedVerification
   });
   if (restored?.records) registry.records.push(...restored.records);
   const history = restored?.history ?? provider.initialHistory(buildUserPrompt({
     task: options.task,
-    repo: repoRoot,
-    testCommand: verificationCommand
+    repo: displayRoot,
+    testCommand: verificationCommand,
+    testTargetHint: options.testTargetHint
   }));
   const usage: RunUsage = { ...(restored?.usage ?? DEFAULT_USAGE) };
   const failureSignatures = new Map(Object.entries(restored?.failureSignatures ?? {}));
@@ -165,6 +202,11 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     await store.trace(options.resume ? "run_resumed" : "run_started", {
       runId: store.runId,
       repo: repoRoot,
+      displayRoot,
+      executor: executor.kind,
+      profile: profile.name,
+      profileFlags: profile.flags,
+      allowTargetedVerification,
       provider: provider.name,
       model,
       limits
@@ -188,7 +230,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
       const turnStarted = Date.now();
       const turn = await completeWithRetry(provider, {
         model,
-        instructions: SYSTEM_PROMPT,
+        instructions,
         history,
         tools: registry.definitions,
         reasoningEffort: options.reasoningEffort ?? "high",
@@ -285,6 +327,14 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           observationBytes: Buffer.byteLength(observation),
           planRevision: plan.snapshot().revision
         });
+        if (!result.ok && result.code === "environment") {
+          // The container or daemon failed, not the agent: stop, so the harness can retry the run as infrastructure.
+          status = "failed";
+          stopReason = "runtime_error";
+          finalMessage = `Execution environment failure: ${result.error}`;
+          await store?.trace("environment_failure", { round: usage.modelRounds, name: call.name, error: result.error.slice(0, 500) });
+          shouldStop = true;
+        }
         if (registry.finishAccepted) {
           status = "success";
           stopReason = "explicit_finish";
@@ -321,7 +371,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           stopReason: shouldStop ? stopReason : undefined,
           textOnlyNudges,
           startedAt
-        }, limits.timeoutSec);
+        }, git);
         if (shouldStop) {
           appendSkippedToolResults(
             provider,
@@ -353,8 +403,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   }
 
   usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted);
-  const statusResult = await gitStatus(repoRoot, limits.timeoutSec);
-  const diffResult = await gitDiff(repoRoot, limits.timeoutSec);
+  const statusResult = await gitStatus(repoRoot, git.timeoutSec, git.isolatedConfig);
+  const diffResult = await gitDiff(repoRoot, git.timeoutSec, git.isolatedConfig);
   const tests = registry.records.filter((record) => record.type === "test").map((record) => ({
     command: record.command,
     passed: record.passed,
@@ -381,7 +431,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     stopReason,
     textOnlyNudges,
     startedAt
-  }, limits.timeoutSec);
+  }, git);
   await store?.trace("run_finished", { status, stopReason, usage, plan: compactPlan(plan.snapshot()) });
 
   return {
@@ -422,11 +472,16 @@ async function completeWithRetry(
     } catch (error) {
       lastError = error;
       const retryable = isRetryableModelError(error, controller.signal.aborted);
+      // Enough to tell a provider outage from a bad request afterwards: the status, the network error code, whether
+      // no response arrived at all, and whether this call's own deadline (not the caller) aborted it.
       await store?.trace("model_attempt_failed", {
         attempt,
         retryable,
         name: error instanceof Error ? error.name : "Error",
-        status: statusCode(error)
+        status: statusCode(error),
+        code: errorCode(error),
+        connectionError: error instanceof APIConnectionError,
+        timedOut: controller.signal.aborted && request.signal?.aborted !== true
       });
       if (!retryable || attempt >= limits.maxApiAttempts) throw new ModelCallError(error);
       const retryDelay = Math.min(limits.retryDelayMs * 2 ** (attempt - 1), Math.max(0, deadline - Date.now()));
@@ -473,6 +528,7 @@ export function categorizeToolFailure(name: string, result: ToolResult<unknown>)
     if (data?.timedOut === true) return "timeout";
     return name === "run_tests" && data?.passed === false ? "test_failed" : undefined;
   }
+  if (result.code === "environment") return "environment";
   return TOOL_FAILURE_CATEGORIES.find(([, pattern]) => pattern.test(result.error))?.[0] ?? "other";
 }
 
@@ -501,9 +557,8 @@ function stableJson(value: unknown): string {
 function isRetryableModelError(error: unknown, timedOut: boolean): boolean {
   if (timedOut) return true;
   const status = statusCode(error);
-  const code = (error as { code?: string })?.code;
   return status === 429 || (status !== undefined && status >= 500) ||
-    ["ETIMEDOUT", "ECONNRESET", "EAI_AGAIN"].includes(code ?? "") ||
+    NETWORK_ERROR_CODES.includes(errorCode(error) ?? "") || error instanceof APIConnectionError ||
     (error instanceof Error && error.name === "AbortError");
 }
 
@@ -512,10 +567,20 @@ function statusCode(error: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-async function readGitHead(repoRoot: string, timeoutSec: number): Promise<string | null> {
-  const result = await runProgramCommand({
-    program: "git", args: ["rev-parse", "HEAD"], cwd: repoRoot, timeoutSec
-  });
+// The first string code along the cause chain: the OpenAI SDK's connection errors carry the socket's code
+// (e.g. ECONNRESET) on a nested cause.
+function errorCode(error: unknown): string | undefined {
+  let current = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+async function readGitHead(repoRoot: string, git: HostGitOptions): Promise<string | null> {
+  const result = await runHostGit(repoRoot, ["rev-parse", "HEAD"], git);
   return result.ok && result.data.exitCode === 0 ? result.data.stdout.trim() || null : null;
 }
 
@@ -557,38 +622,21 @@ function appendSkippedToolResults(
 
 async function readWorktreeFingerprint(
   repoRoot: string,
-  timeoutSec: number,
-  gitHead: string | null
+  gitHead: string | null,
+  git: HostGitOptions
 ): Promise<string | null> {
   if (!gitHead) return null;
+  const listing = { ...git, outputLimitBytes: 8 * 1024 * 1024 };
   const [tracked, untracked, ignored] = await Promise.all([
-    runProgramCommand({
-      program: "git",
-      args: ["diff", "--name-only", "-z", "HEAD"],
-      cwd: repoRoot,
-      timeoutSec,
-      outputLimitBytes: 8 * 1024 * 1024
-    }),
-    runProgramCommand({
-      program: "git",
-      args: ["ls-files", "--others", "--exclude-standard", "-z"],
-      cwd: repoRoot,
-      timeoutSec,
-      outputLimitBytes: 8 * 1024 * 1024
-    }),
-    runProgramCommand({
-      program: "git",
-      args: [
-        "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ".",
-        ":(exclude)node_modules/**", ":(exclude)**/node_modules/**",
-        ":(exclude)dist/**", ":(exclude)**/dist/**",
-        ":(exclude)build/**", ":(exclude)**/build/**",
-        ":(exclude).onehand/**", ":(exclude)**/.onehand/**"
-      ],
-      cwd: repoRoot,
-      timeoutSec,
-      outputLimitBytes: 8 * 1024 * 1024
-    })
+    runHostGit(repoRoot, ["diff", ...HOST_DIFF_FLAGS, "--name-only", "-z", "HEAD"], listing),
+    runHostGit(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"], listing),
+    runHostGit(repoRoot, [
+      "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ".",
+      ":(exclude)node_modules/**", ":(exclude)**/node_modules/**",
+      ":(exclude)dist/**", ":(exclude)**/dist/**",
+      ":(exclude)build/**", ":(exclude)**/build/**",
+      ":(exclude).onehand/**", ":(exclude)**/.onehand/**"
+    ], listing)
   ]);
   if (!tracked.ok || tracked.data.exitCode !== 0 || tracked.truncated ||
       !untracked.ok || untracked.data.exitCode !== 0 || untracked.truncated ||
@@ -629,14 +677,14 @@ async function saveCheckpoint(
   value: Omit<PersistedRunState, "schemaVersion" | "runId" | "updatedAt" | "failureSignatures" | "worktreeFingerprint"> & {
     failureSignatures: Map<string, number>;
   },
-  timeoutSec: number
+  git: HostGitOptions
 ): Promise<void> {
   if (!store) return;
   await store.save({
     ...value,
     schemaVersion: RUN_STATE_VERSION,
     runId: store.runId,
-    worktreeFingerprint: await readWorktreeFingerprint(value.repo, timeoutSec, value.gitHead),
+    worktreeFingerprint: await readWorktreeFingerprint(value.repo, value.gitHead, git),
     failureSignatures: Object.fromEntries(value.failureSignatures),
     updatedAt: new Date().toISOString()
   });
