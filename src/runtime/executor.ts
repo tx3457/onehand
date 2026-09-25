@@ -2,11 +2,14 @@ import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { CommandExecution, ToolResult } from "../types.js";
-import { DEFAULT_TOOL_OUTPUT_LIMIT, truncateText } from "../utils/truncate.js";
+import { DEFAULT_TOOL_OUTPUT_LIMIT } from "../utils/truncate.js";
+import { OutputCapture } from "./outputCapture.js";
 
 const SAFE_ENV_KEYS = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM", "CI"];
 // `timeout` inside the container enforces the deadline; this host timer only stops a hung docker client.
 const DOCKER_BACKSTOP_SEC = 15;
+const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024 * 1024;
+const OUTPUT_LIMIT_NOTE = "[onehand: command killed after producing more than 64 MB of output]";
 // coreutils `timeout` exits 124 at the deadline, or 137 when --kill-after had to SIGKILL the command.
 const TIMEOUT_EXIT_CODES = new Set([124, 137]);
 // With one of these exit codes and daemon or runtime text, `docker exec` itself failed, not the command.
@@ -236,27 +239,37 @@ function spawnAndCapture(options: {
       env: options.env,
       detached: options.signal !== undefined
     });
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
+    const processGroup = options.signal !== undefined && child.pid !== undefined && process.platform !== "win32";
+    const stdoutCapture = new OutputCapture(outputLimitBytes, options.captureFailures);
+    const stderrCapture = new OutputCapture(outputLimitBytes, options.captureFailures);
+    let totalOutputBytes = 0;
+    let outputLimitExceeded = false;
     let killed = false;
     let aborted = false;
     let settled = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
 
     const finish = (result: ToolResult<CommandExecution>) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      // The parent can close while a detached descendant still ignores TERM.
+      if (!processGroup) clearTimeout(killTimer);
       options.signal?.removeEventListener("abort", abort);
       resolve(result);
     };
-    const terminate = (reason: "abort" | "timeout") => {
-      if (settled || aborted || killed) return;
+    const terminate = (reason: "abort" | "timeout" | "output") => {
+      if (settled || aborted) return;
+      const terminating = killed || outputLimitExceeded;
+      // Keep the output-limit classification even if a timeout already sent TERM.
+      if (reason === "output") outputLimitExceeded = true;
+      if (terminating) return;
       if (reason === "abort") aborted = true;
-      else killed = true;
-      killChild(child.pid, child.kill.bind(child), "SIGTERM", options.signal !== undefined);
-      setTimeout(() => {
-        killChild(child.pid, child.kill.bind(child), "SIGKILL", options.signal !== undefined);
+      else if (reason === "timeout") killed = true;
+      killTimer = setTimeout(() => {
+        killChild(child.pid, child.kill.bind(child), "SIGKILL", processGroup);
       }, 1_000).unref();
+      killChild(child.pid, child.kill.bind(child), "SIGTERM", processGroup);
     };
     const abort = () => terminate("abort");
     const timer = setTimeout(() => {
@@ -264,39 +277,49 @@ function spawnAndCapture(options: {
     }, options.killAfterMs);
     options.signal?.addEventListener("abort", abort, { once: true });
 
-    child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+    const capture = (stream: OutputCapture, chunk: Buffer) => {
+      if (settled) return;
+      stream.write(chunk);
+      totalOutputBytes += chunk.length;
+      if (totalOutputBytes > MAX_COMMAND_OUTPUT_BYTES) terminate("output");
+    };
+    child.stdout?.on("data", (chunk: Buffer) => capture(stdoutCapture, chunk));
+    child.stderr?.on("data", (chunk: Buffer) => capture(stderrCapture, chunk));
     child.on("error", (error) => finish(failure(error.message)));
     child.on("close", (code) => {
-      if (aborted) {
-        finish(failure("Command aborted"));
-        return;
+      if (settled) return;
+      try {
+        if (aborted) {
+          finish(failure("Command aborted"));
+          return;
+        }
+        const durationMs = Date.now() - started;
+        // A 124 or 137 well before the deadline is the command's own exit status, not a timeout.
+        const timedOut = !outputLimitExceeded && (killed || (options.deadlineMs !== undefined && code !== null && TIMEOUT_EXIT_CODES.has(code) &&
+          durationMs >= options.deadlineMs - 250));
+        const stdout = stdoutCapture.finish(truncation, true);
+        const stderr = stderrCapture.finish(truncation, false);
+        const truncated = stdout.truncated || stderr.truncated;
+        const failureLines = [...stdoutCapture.failures, ...stderrCapture.failures].slice(0, 40);
+        const captured = failureLines.length > 0 ? { failures: failureLines } : {};
+        finish({
+          ok: true,
+          data: {
+            command: options.command,
+            exitCode: timedOut || outputLimitExceeded ? null : code,
+            stdout: stdout.text,
+            stderr: stderr.text,
+            timedOut,
+            durationMs,
+            truncated,
+            ...(outputLimitExceeded ? { outputLimitExceeded: true, note: OUTPUT_LIMIT_NOTE } : {}),
+            ...captured
+          },
+          truncated
+        });
+      } catch (error) {
+        finish(failure(`Could not capture command output: ${error instanceof Error ? error.message : String(error)}`));
       }
-      const durationMs = Date.now() - started;
-      // A 124 or 137 well before the deadline is the command's own exit status, not a timeout.
-      const timedOut = killed || (options.deadlineMs !== undefined && code !== null && TIMEOUT_EXIT_CODES.has(code) &&
-        durationMs >= options.deadlineMs - 250);
-      const fullStdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const fullStderr = Buffer.concat(stderrChunks).toString("utf8");
-      const stdout = truncateText(fullStdout, outputLimitBytes, truncation);
-      const stderr = truncateText(fullStderr, outputLimitBytes, truncation);
-      const truncated = stdout.truncated || stderr.truncated;
-      const failureLines = options.captureFailures ? extractFailureLines(fullStdout, fullStderr) : [];
-      const captured = failureLines.length > 0 ? { failures: failureLines } : {};
-      finish({
-        ok: true,
-        data: {
-          command: options.command,
-          exitCode: timedOut ? null : code,
-          stdout: stdout.text,
-          stderr: stderr.text,
-          timedOut,
-          durationMs,
-          truncated,
-          ...captured
-        },
-        truncated
-      });
     });
   });
 }
@@ -316,16 +339,6 @@ function killChild(
     }
   }
   kill(signal);
-}
-
-function extractFailureLines(stdout: string, stderr: string): string[] {
-  const matchesFailure = /^(?:(?:FAILED|ERROR)\b|(?:FAIL|ERROR):\s|E\s{3})/;
-  const failures: string[] = [];
-  for (const line of `${stdout}\n${stderr}`.split(/\r?\n/)) {
-    if (matchesFailure.test(line)) failures.push(line);
-    if (failures.length === 40) break;
-  }
-  return failures;
 }
 
 function safeEnvironment(): NodeJS.ProcessEnv {

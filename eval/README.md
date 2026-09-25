@@ -151,7 +151,7 @@ Do not commit environment files or any raw artifact that contains a secret. Revi
 
 ### Running a SWE-bench evaluation
 
-Available named profiles are `baseline`, `ctx`, `ctx-sandbox`, `ctx-sandbox-mask`, `full`, and `full-explore`. The `full-explore` E9 arm adds a read-only explore sub-agent to `full`, shares the parent's budgets, and has its own behavior fingerprint. Select it explicitly with `--variants full,full-explore`; the five existing profiles and their fingerprints are unchanged. `review_changes` is an interactive REPL tool and is not included in any evaluation profile.
+Available named profiles are `baseline`, `ctx`, `ctx-sandbox`, `ctx-sandbox-mask`, `full`, `ctx-sandbox-plan`, and `ctx-sandbox-plan-explore`. The `ctx-sandbox-plan` arm combines retrieval, compact observations, sandbox commands, and lean planning. Its E9 `ctx-sandbox-plan-explore` arm adds a read-only explore sub-agent, shares the parent's budgets, and has its own behavior fingerprint. Select it explicitly with `--variants ctx-sandbox-plan,ctx-sandbox-plan-explore`; the five historical profiles and their fingerprints are unchanged. `ctx-sandbox-mask` and `full` include observation masking, which the dev A/B found more expensive (+32% cost), so masking was not kept in the final stack. `review_changes` is an interactive REPL tool and is not included in any evaluation profile.
 
 ```bash
 # One-time setup, outside this repository: the swebench 5.0.2 harness in ~/.onehand/swebench/.venv.
@@ -162,7 +162,7 @@ Available named profiles are `baseline`, `ctx`, `ctx-sandbox`, `ctx-sandbox-mask
 npm run eval:swebench -- selfcheck --split dev --repeat 2 --image-source epoch --output eval/results/selfcheck-dev
 
 # 2. Run variants in one interleaved evaluation, e.g. a baseline diagnostic or an A/B window.
-npm run eval:swebench -- run --split dev --variants baseline,ctx,ctx-sandbox,ctx-sandbox-mask,full --repetitions 1 --concurrency 4 \
+npm run eval:swebench -- run --split dev --variants baseline,ctx-sandbox-plan,ctx-sandbox-plan-explore --repetitions 1 --concurrency 4 \
   --cost-cap-usd 12 --model deepseek-flash --env-file /absolute/path/to/private.env \
   --output eval/results/<name>
 

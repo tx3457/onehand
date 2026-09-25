@@ -292,7 +292,7 @@ export function createToolRegistry(
             }
           }
           if (execution.ok) {
-            const passed = execution.data.exitCode === 0 && !execution.data.timedOut;
+            const passed = execution.data.exitCode === 0 && !execution.data.timedOut && !execution.data.outputLimitExceeded;
             // A subset run verifies the latest change only where the operator allows it (SWE-bench).
             const subsetOnly = targets.length > 0 && !context.allowTargetedVerification;
             const targetData = targets.length ? { targets } : {};
@@ -301,9 +301,7 @@ export function createToolRegistry(
             plan.recordValidation(passed && !subsetOnly);
             const gate = subsetOnly ? { verifiesLatestChange: false } : {};
             let data = { ...execution.data, passed, ...targetData, ...gate };
-            if (subsetOnly) data = features.leanPlanning
-              ? appendNote(data, TARGETED_RUN_NOTE)
-              : { ...data, note: TARGETED_RUN_NOTE };
+            if (subsetOnly) data = appendNote(data, TARGETED_RUN_NOTE);
             if (contentTrackingUnavailable) data = appendNote(data, CONTENT_TRACKING_NOTE);
             result = { ok: true, data, truncated: execution.truncated };
           } else result = execution;

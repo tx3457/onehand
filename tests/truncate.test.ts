@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { truncateText } from "../src/utils/truncate.js";
+import { legacyTruncateText } from "./fixtures/legacyTruncate.js";
 
 describe("truncateText", () => {
+  it("preserves existing string results, including unpaired surrogates, below the limit", () => {
+    for (const value of ["plain", "中文🎉", "a\ud800b", "\udc00"]) {
+      expect(truncateText(value, 100)).toEqual(legacyTruncateText(value, 100));
+    }
+  });
   it("does not truncate output under the limit", () => {
     const result = truncateText("hello world", 1000, "head_tail");
     expect(result).toEqual({ text: "hello world", truncated: false });

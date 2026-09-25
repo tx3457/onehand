@@ -160,7 +160,7 @@ describe("sub-agents", () => {
       provider,
       executor,
       displayRoot: "/testbed",
-      profile: PROFILES["full-explore"],
+      profile: PROFILES["ctx-sandbox-plan-explore"],
       enforcePlanning: false,
       persistence: false
     });

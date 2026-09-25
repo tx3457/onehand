@@ -1,26 +1,15 @@
+// Frozen pre-bounded-capture algorithm: independent compatibility oracle.
 export const DEFAULT_TOOL_OUTPUT_LIMIT = 20 * 1024;
 
-export function truncateText(
+export function legacyTruncateText(
   value: string,
   limitBytes = DEFAULT_TOOL_OUTPUT_LIMIT,
   strategy: "head" | "head_tail" = "head"
 ): { text: string; truncated: boolean } {
   const buffer = Buffer.from(value, "utf8");
-  if (buffer.byteLength <= limitBytes) return { text: value, truncated: false };
-  return truncateCapturedText(buffer, buffer, buffer.byteLength, limitBytes, strategy);
-}
-
-// Head and tail are UTF-8 bytes from the same decoded stream. Each must retain at least
-// limitBytes bytes (plus one byte of lookahead at the head), or the whole shorter stream.
-export function truncateCapturedText(
-  head: Buffer,
-  tail: Buffer,
-  totalBytes: number,
-  limitBytes = DEFAULT_TOOL_OUTPUT_LIMIT,
-  strategy: "head" | "head_tail" = "head"
-): { text: string; truncated: boolean } {
+  const totalBytes = buffer.byteLength;
   if (totalBytes <= limitBytes) {
-    return { text: head.subarray(0, totalBytes).toString("utf8"), truncated: false };
+    return { text: value, truncated: false };
   }
 
   // Upper bound on marker size: omitted bytes can't exceed totalBytes, so its digit count
@@ -29,30 +18,29 @@ export function truncateCapturedText(
   const markerBudget = Buffer.byteLength(marker(totalBytes), "utf8");
   if (limitBytes < markerBudget) {
     // No room for the marker: keep only the head that fits.
-    return { text: head.subarray(0, backToCharBoundary(head, limitBytes)).toString("utf8"), truncated: true };
+    return { text: buffer.subarray(0, backToCharBoundary(buffer, limitBytes)).toString("utf8"), truncated: true };
   }
   const contentBudget = limitBytes - markerBudget;
 
   if (strategy === "head_tail") {
     const headBudget = Math.floor(contentBudget * 0.3);
     const tailBudget = contentBudget - headBudget;
-    const headEnd = backToCharBoundary(head, Math.min(headBudget, totalBytes));
-    const tailOffset = totalBytes - tail.length;
-    const tailStart = forwardToCharBoundary(tail, Math.max(totalBytes - tailBudget, headEnd) - tailOffset);
-    const omitted = tailOffset + tailStart - headEnd;
+    const headEnd = backToCharBoundary(buffer, Math.min(headBudget, totalBytes));
+    const tailStart = forwardToCharBoundary(buffer, Math.max(totalBytes - tailBudget, headEnd));
+    const omitted = tailStart - headEnd;
     return {
       text:
-        head.subarray(0, headEnd).toString("utf8") +
+        buffer.subarray(0, headEnd).toString("utf8") +
         marker(omitted) +
-        tail.subarray(tailStart).toString("utf8"),
+        buffer.subarray(tailStart).toString("utf8"),
       truncated: true
     };
   }
 
-  const headEnd = backToCharBoundary(head, Math.min(contentBudget, totalBytes));
+  const headEnd = backToCharBoundary(buffer, Math.min(contentBudget, totalBytes));
   const omitted = totalBytes - headEnd;
   return {
-    text: head.subarray(0, headEnd).toString("utf8") + marker(omitted),
+    text: buffer.subarray(0, headEnd).toString("utf8") + marker(omitted),
     truncated: true
   };
 }
@@ -77,6 +65,3 @@ function forwardToCharBoundary(buffer: Buffer, index: number): number {
   return i;
 }
 
-export function safeJsonStringify(value: unknown): string {
-  return JSON.stringify(value, null, 2);
-}

@@ -14,13 +14,19 @@ const full = {
   flags: { retrieval: true, compactObservations: true, sandboxCommands: true, observationMasking: true, leanPlanning: true }
 } satisfies AgentProfile;
 
+const ctxSandboxPlan = {
+  name: "ctx-sandbox-plan",
+  flags: { retrieval: true, compactObservations: true, sandboxCommands: true, leanPlanning: true }
+} satisfies AgentProfile;
+
 export const PROFILES = {
   baseline: { name: "baseline", flags: {} },
   ctx: { name: "ctx", flags: { retrieval: true, compactObservations: true } },
   "ctx-sandbox": { name: "ctx-sandbox", flags: { retrieval: true, compactObservations: true, sandboxCommands: true } },
   "ctx-sandbox-mask": { name: "ctx-sandbox-mask", flags: { retrieval: true, compactObservations: true, sandboxCommands: true, observationMasking: true } },
   full,
-  "full-explore": { name: "full-explore", flags: { ...full.flags, exploreSubagent: true } }
+  "ctx-sandbox-plan": ctxSandboxPlan,
+  "ctx-sandbox-plan-explore": { name: "ctx-sandbox-plan-explore", flags: { ...ctxSandboxPlan.flags, exploreSubagent: true } }
 } satisfies Record<string, AgentProfile>;
 
 export function resolveFeatures(flags: unknown = {}): AgentFeatures {

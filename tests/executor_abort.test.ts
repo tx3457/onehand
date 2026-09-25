@@ -75,6 +75,31 @@ describe("LocalExecutor cancellation", () => {
     await expect(access(trailing)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(readFile(started, "utf8")).resolves.toBe("ready");
   });
+
+  it("still escalates the process group when its parent exits but a descendant ignores TERM", async () => {
+    const cwd = await makeTempDir();
+    dirs.push(cwd);
+    const started = path.join(cwd, "descendant-ready.txt");
+    const trailing = path.join(cwd, "trailing.txt");
+    const childScript = [
+      "process.on('SIGTERM', () => {})",
+      `require('node:fs').writeFileSync(${JSON.stringify(started)}, 'ready')`,
+      `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(trailing)}, 'late'), 1500)`
+    ].join(";");
+    const parentScript = [
+      `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], { stdio: 'ignore' })`,
+      "setTimeout(() => {}, 10_000)"
+    ].join(";");
+    const controller = new AbortController();
+    const pending = new LocalExecutor().run({
+      program: "node", args: ["-e", parentScript], cwd, timeoutSec: 10, signal: controller.signal
+    });
+    await waitForFile(started);
+    controller.abort();
+    await expect(pending).resolves.toMatchObject({ ok: false, error: "Command aborted" });
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    await expect(access(trailing)).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });
 
 async function waitForFile(file: string): Promise<void> {

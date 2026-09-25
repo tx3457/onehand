@@ -99,6 +99,8 @@ export type CommandExecution = {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  outputLimitExceeded?: boolean;
+  note?: string;
   durationMs: number;
   truncated: boolean;
   failures?: string[];

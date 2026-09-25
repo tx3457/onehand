@@ -162,7 +162,7 @@ In chat, MCP calls bypass planning but require permission. Their defaults are **
 
 ## Sub-agents
 
-The `exploreSubagent` feature adds `explore({ question })`. It runs a separate, read-only agent and returns a report of at most 300 words with file paths and line numbers. Its history stays separate; the parent receives only its report. The `full-explore` profile enables this feature on top of `full` for the E9 evaluation arm.
+The `exploreSubagent` feature adds `explore({ question })`. It runs a separate, read-only agent and returns a report of at most 300 words with file paths and line numbers. Its history stays separate; the parent receives only its report. The `ctx-sandbox-plan-explore` profile enables this feature on top of `ctx-sandbox-plan` for the E9 evaluation arm.
 
 Chat also exposes `review_changes({})`, and `/review` runs it directly using the latest task, tracked diff against `HEAD` (including staged changes), a status list for inspecting untracked files, and last plan. The diff/status context is capped at 30 KB. The reviewer reports concrete defects with file and line references or says `no blocking issues`. Review is enabled by `interactiveTools: ["review_changes"]` and is never included in evaluation profiles.
 
@@ -170,18 +170,19 @@ Both presets can list, search and read files, inspect Git status/diff, and use o
 
 ## Agent profiles
 
-The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support six named profiles:
+The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support seven named profiles:
 
 - `baseline`: unchanged tool definitions, prompts, JSON observations, and command policy.
 - `ctx`: windowed, numbered reads; grouped search and directory summaries (E4); compact text observations (E3).
 - `ctx-sandbox`: `ctx` plus inline Python/Node and read-only git/grep/sed commands in an isolated container (E8). Requires a Docker executor; local executors reject it.
 - `ctx-sandbox-mask`: `ctx-sandbox` plus deterministic observation masking (E5). When the previous response reports more than 48,000 prompt tokens, retain the newest complete tool rounds within a 48 KiB serialized-history budget (at least 2, at most 10). Assistant text, reasoning, and tool results all count toward that budget; the minimum 2 rounds may exceed it. Apply a masking block only if the full history, including its replacement context note, shrinks by at least 32 KiB. Otherwise history and note placement remain untouched, preserving the prompt-cache prefix. A real event refreshes the plan/modified-files note, checkpoints masked history, and traces `bytesRemoved`, `bytesKept`, and `keptRounds`.
 - `full`: `ctx-sandbox-mask` plus lean planning (E1): atomic batched `update_plan`, transactional `finish_task stepEvidence`, pre-plan tests and read-only inspection, and content-based mutation tracking.
-- `full-explore`: `full` plus the isolated, budget-sharing `explore` sub-agent (E9).
+- `ctx-sandbox-plan`: `ctx-sandbox` plus lean planning (E1), without observation masking.
+- `ctx-sandbox-plan-explore`: `ctx-sandbox-plan` plus the isolated, budget-sharing `explore` sub-agent (E9).
 
 Feature flags are validated booleans and default to false. Unknown flags are rejected. The CLI still uses `baseline`.
 
-All five existing profiles retain their original prompts, tool schemas, and behavior fingerprints. `full-explore` has a distinct fingerprint and is included in normal `PROFILES` enumeration. Masking makes no extra model calls and does not discount token budgets. `full` hashes its effective lean prompt and tool schemas in its behavior fingerprint.
+All five historical profiles retain their original prompts, tool schemas, and behavior fingerprints. The two `ctx-sandbox-plan` profiles have distinct fingerprints and are included in normal `PROFILES` enumeration. Masking makes no extra model calls and does not discount token budgets. Lean-planning profiles hash their effective lean prompt and tool schemas in their behavior fingerprints.
 
 ## Completion and recovery semantics
 
