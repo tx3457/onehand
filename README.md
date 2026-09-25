@@ -234,7 +234,7 @@ npm run demo
 npm run eval:deterministic
 ```
 
-The local suite has 583 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 59 files. Offline validation with the local dataset passes 585 tests and skips the 6 Docker tests:
+The local suite has 612 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 60 files. Offline validation with the local dataset passes 614 tests and skips the 6 Docker tests:
 
 - A 10-scenario Agent suite, run against temporary Git fixtures. It covers multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry.
 - Provider-contract tests. One checks that DeepSeek `reasoning_content` is sent back on later tool-carrying requests; another checks that no `temperature` is sent in thinking mode; another checks that a reasoning-only, tool-call-free turn replays with string content instead of `content: null`.
@@ -266,6 +266,7 @@ The local suite has 583 self-contained deterministic tests, 2 local-dataset chec
   - split, exclusion and holdout-ledger handling;
   - patch extraction;
   - grading classification against realistic fake-harness logs (test timeout, OOM, apply failure, container unavailable);
+  - external mini-swe-agent reference grading with fake Docker/harness, usage pricing, resume, report disclaimers, and CLI validation;
   - self-check classification.
 - SWE-bench pipeline tests:
   - the shared job loop: cost cap, crash journal, invalid-row substitution, provider-error re-runs and the circuit breaker;

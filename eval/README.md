@@ -178,6 +178,20 @@ npm run eval:analyze -- --results eval/results/<name> --variant baseline --outpu
 
 The holdout split additionally needs `--split holdout --confirm-holdout`, and is recorded in the holdout ledger.
 
+### External reference
+
+Grade mini-swe-agent's existing predictions without running a model:
+
+```bash
+npm run eval:swebench -- grade-external --preds /path/to/mini/preds.json --trajectories /path/to/mini \
+  --split dev --label mini-swe-agent-2.4.6 --model deepseek-flash --image-source epoch \
+  --concurrency 4 --output eval/results/mini-reference
+```
+
+`--task-ids` selects a comma-separated subset; otherwise the split minus exclusions is graded. `--split holdout` is also supported for these already-generated predictions. Each selected instance needs `<trajectories>/<id>/<id>.traj.json`; missing trajectories or malformed usage fail before grading. Missing predictions and missing/empty patches count unresolved. The existing official harness 5.0.2 grades nonempty patches against locally pinned Epoch image IDs, using the same outcome classification and timeout as OneHand. Images and the harness must already be installed; this command never pulls images or calls a model. mini's derived images rebuild `/testbed/.git` on the same Epoch base, so their patches are graded against that base.
+
+The command writes redacted `external-results.jsonl`, `external-summary.json`, and `external-report.md`. An `external-manifest.json` sidecar freezes input identities and all selected image IDs before grading, so interrupted jobs keep their original image IDs even if tags change. Reruns skip completed rows; changed frozen inputs or incompatible options require a fresh output directory. Infrastructure failures leave instances pending for resume. Reports include a resolved-rate bootstrap CI, costs from OneHand's shared price snapshot, usage, outcomes, and trajectory-configured limits/network settings. Rows preserve mini's reported `apiCalls` separately from rounds (responses carrying usage). This is an **external descriptive reference**: mini uses a bash tool and its own step/cost limits, so it is not a controlled OneHand comparison. These separate artifacts do not enter `eval:compare`/`eval:analyze` or alter OneHand's holdout ledger.
+
 ### SWE-bench environment
 
 - **Images.** By default, every step uses Epoch AI's drop-in rebuilds of the official instance images, `ghcr.io/epoch-research/swe-bench.eval.x86_64.<instance_id>:latest`, with the instance id used verbatim (no `_1776_` rewrite). Pulling the official images from Docker Hub is too slow on the evaluation machine. `--image-source official` uses each record's own `swebench/...` image instead, and `selfcheck.json` records which source ran. The workspace copy, the agent's container, and the official harness all use the same image. The harness reads the image from the dataset record, so grading passes it a one-instance dataset file with `image` rewritten. OneHand never pulls an image; a missing one is an infrastructure error. Before any job runs, an evaluation resolves every instance image to its local ID and freezes the IDs in the manifest (`imageIds`, compared on resume). Each run checks its image against that ID before preparing its workspace and again right before grading, and the harness then grades in the pinned ID itself; a mismatch stops the evaluation without a retry.

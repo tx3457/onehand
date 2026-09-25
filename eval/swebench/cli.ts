@@ -2,10 +2,12 @@
 import { Command } from "commander";
 import path from "node:path";
 import { PROFILES } from "../../src/agent/profile.js";
+import { priceSnapshotFor } from "../../src/pricing.js";
 import { loadDeepSeekEnvironment } from "../env.js";
 import { capReachedFrom, loadResultSet } from "../results-io.js";
 import type { SwebenchManifest, SwebenchRunResult } from "../types.js";
 import { ImageSource, SwebenchSplit } from "./dataset.js";
+import { gradeExternal } from "./external.js";
 import { DEFAULT_SCHEDULE_SEED, runSwebenchEvaluation } from "./evaluate.js";
 import { DEFAULT_PROVIDER_BREAKER } from "./runInstance.js";
 import { runSelfcheck } from "./selfcheck.js";
@@ -91,6 +93,37 @@ program
     const { pass, fail, error, total } = report.summary;
     process.stdout.write(`[selfcheck] report=${path.join(outputDir, "selfcheck.md")} pass=${pass} fail=${fail} error=${error} total=${total}\n`);
     if (pass !== total) process.exitCode = 2;
+  });
+
+program
+  .command("grade-external")
+  .description("grade external mini-swe-agent predictions as a descriptive reference")
+  .requiredOption("--preds <path>", "mini-swe-agent preds.json")
+  .requiredOption("--trajectories <dir>", "directory containing <instance>/<instance>.traj.json")
+  .requiredOption("--split <split>", "dev or holdout", parseSplit)
+  .option("--task-ids <ids>", "comma-separated instance ids (default: the split minus exclusions)", parseIds)
+  .requiredOption("--label <name>", "external agent label", (value: string) => {
+    if (!value.trim()) throw new Error("External label must not be empty");
+    return value;
+  })
+  .option("--model <id>", "model for the shared price snapshot", (value: string) => {
+    priceSnapshotFor(value);
+    return value;
+  }, "deepseek-flash")
+  .option("--image-source <source>", "locally available Epoch images", (value: string) => {
+    if (value !== "epoch") throw new Error("External grading requires --image-source epoch");
+    return value;
+  }, "epoch")
+  .option("--concurrency <n>", "gradings in parallel", positiveInt, 1)
+  .requiredOption("--output <dir>", "external results directory; existing rows are resumed")
+  .action(async (options) => {
+    const outputDir = path.resolve(options.output);
+    const { summary } = await gradeExternal({
+      preds: path.resolve(options.preds), trajectories: path.resolve(options.trajectories),
+      split: options.split, taskIds: options.taskIds, label: options.label, model: options.model,
+      imageSource: options.imageSource, concurrency: options.concurrency, outputDir
+    });
+    process.stdout.write(`[external] report=${path.join(outputDir, "external-report.md")} runs=${summary.observedRuns}/${summary.plannedRuns} resolved=${summary.resolved.count}/${summary.observedRuns}\n`);
   });
 
 program.parseAsync(process.argv).catch((error) => {
