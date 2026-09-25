@@ -345,7 +345,7 @@ const MUTATING_OR_ACTION_TOOLS = new Set(["write_file", "replace_text", "run_com
 const READ_ONLY_TOOLS = new Set(["list_files", "search_code", "read_file", "git_status", "git_diff"]);
 const emptyObject: JsonSchema = { type: "object", properties: {}, additionalProperties: false };
 
-const EXPLORE_TOOL_DEFINITION: ToolDefinition = {
+export const EXPLORE_TOOL_DEFINITION: ToolDefinition = {
   type: "function",
   name: "explore",
   description: "Ask a read-only sub-agent to investigate a repository question and return a concise report.",

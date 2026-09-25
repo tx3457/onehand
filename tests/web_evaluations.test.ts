@@ -63,7 +63,13 @@ describe("evaluation web adapter", () => {
 
     const result = await readEvaluation(root, "standard");
 
-    expect(result).toMatchObject({ complete: true, completeness: { capReached: false, invalidResultRuns: 0, observedRuns: 4 } });
+    expect(result).toMatchObject({
+      complete: true,
+      completenessLabel: "complete · 4 runs",
+      completeness: { capReached: false, invalidResultRuns: 0, observedRuns: 4 },
+      meanInputTokens: 100,
+      meanOutputTokens: 20
+    });
     expect(result.variants).toEqual([{
       name: "deepseek-chat",
       resolvedRate: 0.75,
@@ -72,6 +78,7 @@ describe("evaluation web adapter", () => {
       meanInputTokens: 100,
       meanOutputTokens: 20,
       complete: true,
+      completenessLabel: "complete · 4 runs",
       completeness: { capReached: false, invalidResultRuns: 0, observedRuns: 4 }
     }]);
     expect(result.reports).toHaveLength(1);
@@ -79,7 +86,7 @@ describe("evaluation web adapter", () => {
     expect(result.reports[0]?.html).not.toContain("<script>");
   });
 
-  it("uses only persisted per-variant SWE metrics and leaves missing token means unknown", async () => {
+  it("uses persisted per-variant SWE token means and leaves absent token means unknown", async () => {
     const { directory, root } = await fixtureRoot();
     const evaluation = path.join(directory, "swe-ab");
     await mkdir(evaluation);
@@ -90,28 +97,116 @@ describe("evaluation web adapter", () => {
     await writeJson(evaluation, "summary.json", {
       kind: "swebench_summary",
       complete: false,
-      completeness: { flags: ["one run missing"] },
+      completeness: { flags: ["one run missing"], plannedRuns: 20, observedRuns: 19, missingRuns: 1 },
+      efficiency: {
+        inputTokens: { mean: 1200, p50: 1100 },
+        outputTokens: { mean: 45, p50: 40 }
+      },
       perVariant: [
-        { variant: "baseline", plannedRuns: 10, observedRuns: 10, rate: 0.4, meanCostUsd: 0.2, meanModelRounds: 8 },
+        {
+          variant: "baseline", plannedRuns: 10, observedRuns: 10, rate: 0.4, meanCostUsd: 0.2, meanModelRounds: 8,
+          meanInputTokens: 0, meanOutputTokens: 17
+        },
         { variant: "lean", plannedRuns: 10, observedRuns: 9, rate: 0.5, meanCostUsd: 0.1, meanModelRounds: 6 }
       ]
     });
 
     await expect(readEvaluation(root, "swe-ab")).resolves.toMatchObject({
       complete: false,
-      completeness: { flags: ["one run missing"] },
+      completenessLabel: "incomplete · 19/20 runs · 1 missing",
+      completeness: { flags: ["one run missing"], plannedRuns: 20, observedRuns: 19, missingRuns: 1 },
+      meanInputTokens: 1200,
+      meanOutputTokens: 45,
       variants: [
         {
           name: "baseline", resolvedRate: 0.4, costPerRun: 0.2, meanRounds: 8,
-          meanInputTokens: null, meanOutputTokens: null, complete: null,
+          meanInputTokens: 0, meanOutputTokens: 17, complete: null,
+          completenessLabel: "completeness unrecorded · 10/10 runs",
           completeness: { plannedRuns: 10, observedRuns: 10 }
         },
         {
           name: "lean", resolvedRate: 0.5, costPerRun: 0.1, meanRounds: 6,
           meanInputTokens: null, meanOutputTokens: null, complete: false,
+          completenessLabel: "incomplete · 9/10 runs · 1 missing",
           completeness: { plannedRuns: 10, observedRuns: 9 }
         }
       ]
+    });
+  });
+
+  it("uses overall SWE token means for exactly one persisted variant and preserves zero", async () => {
+    const { directory, root } = await fixtureRoot();
+    const evaluation = path.join(directory, "swe-single");
+    await mkdir(evaluation);
+    await writeJson(evaluation, "manifest.json", { variants: [{ name: "baseline" }] });
+    await writeJson(evaluation, "summary.json", {
+      kind: "swebench_summary",
+      complete: true,
+      completeness: { plannedRuns: 25, observedRuns: 25, missingRuns: 0 },
+      efficiency: {
+        inputTokens: { mean: 0, p50: 0 },
+        outputTokens: { mean: 26_125.74, p50: 19_663 }
+      },
+      perVariant: [
+        { variant: "baseline", plannedRuns: 25, observedRuns: 25, runs: 25, rate: 0.66, meanCostUsd: 0, meanModelRounds: 0 }
+      ]
+    });
+
+    const result = await readEvaluation(root, "swe-single");
+
+    expect(result).toMatchObject({
+      completenessLabel: "complete · 25/25 runs",
+      meanInputTokens: 0,
+      meanOutputTokens: 26_125.74,
+      variants: [{
+        name: "baseline",
+        costPerRun: 0,
+        meanRounds: 0,
+        meanInputTokens: 0,
+        meanOutputTokens: 26_125.74,
+        completenessLabel: "complete · 25/25 runs"
+      }]
+    });
+  });
+
+  it("prefers persisted top-level and single-variant token means over computed fallbacks", async () => {
+    const { directory, root } = await fixtureRoot();
+    const evaluation = path.join(directory, "swe-single-explicit");
+    await mkdir(evaluation);
+    await writeJson(evaluation, "manifest.json", { variants: [{ name: "baseline" }] });
+    await writeJson(evaluation, "summary.json", {
+      complete: true,
+      completeness: { plannedRuns: 2, observedRuns: 2, missingRuns: 0 },
+      meanInputTokens: 0,
+      meanOutputTokens: 80,
+      efficiency: {
+        inputTokens: { mean: 1200 },
+        outputTokens: { mean: 45 }
+      },
+      perVariant: [{
+        variant: "baseline", plannedRuns: 2, observedRuns: 2, runs: 2,
+        meanInputTokens: 9, meanOutputTokens: 0
+      }]
+    });
+
+    await expect(readEvaluation(root, "swe-single-explicit")).resolves.toMatchObject({
+      meanInputTokens: 0,
+      meanOutputTokens: 80,
+      variants: [{ meanInputTokens: 9, meanOutputTokens: 0 }]
+    });
+  });
+
+  it("does not invent run counts when completeness fields are absent", async () => {
+    const { directory, root } = await fixtureRoot();
+    const evaluation = path.join(directory, "counts-absent");
+    await mkdir(evaluation);
+    await writeJson(evaluation, "manifest.json", {});
+    await writeJson(evaluation, "summary.json", { complete: false, completeness: {} });
+
+    await expect(readEvaluation(root, "counts-absent")).resolves.toMatchObject({
+      completenessLabel: "incomplete",
+      meanInputTokens: null,
+      meanOutputTokens: null
     });
   });
 

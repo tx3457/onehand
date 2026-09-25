@@ -2,18 +2,19 @@
 
 OneHand is a local coding-agent CLI for repository-scoped maintenance tasks. It implements an explicit **inspect → plan → act → observe → revise → verify → finish** loop instead of treating a single model response as task completion.
 
-The project is intentionally small enough to audit. The model can inspect code, make bounded file edits, run local verification commands, and decide the next action from the previous tool observation. A run succeeds only after every plan step is complete and a passing verification follows the latest write.
+The model can inspect code, make bounded file edits, run local verification commands, and decide the next action from the previous tool observation. Editing runs succeed only after every plan step is complete and a passing verification follows the latest write; ask-mode chat can finish with a plain answer.
 
 ## What is implemented
 
-- OpenAI Responses API and DeepSeek Chat Completions providers behind one normalized provider interface.
-- Model-selected repository tools with runtime JSON-schema validation.
-- Multi-round tool use: every tool result is returned to model history before the next decision.
-- Plan-before-mutation gate, repeated-failure detection, replanning requirement, and explicit `finish_task` termination.
-- Step, tool-call, input/output token, wall-clock, command-timeout, and API-retry budgets.
-- Atomic file writes, repository realpath checks, protected secret/control paths, and a shell-free command allowlist.
-- Pluggable command execution: local processes by default, or a `docker exec` adapter. With the adapter, commands and tests run inside a container, the model sees only container paths such as `/testbed`, and file tools keep editing the bind-mounted host checkout. It is a library option; the CLI always runs locally.
-- Atomic `state.json` checkpoints and redacted JSONL traces with resume validation against task, repository, provider, model, and Git HEAD.
+- OpenAI Responses and DeepSeek providers, schema-validated repository tools, verified completion, and step/token/time/retry budgets.
+- Seven profiles with experiment flags for retrieval (E4), compact observations (E3), sandbox commands (E8), masking (E5), lean planning (E1), and explore (E9). Local `run` and `chat` default to `ctx`; `--profile baseline` remains available.
+- `onehand chat` with ask/edit/auto modes, approvals, cancellation, profile/model switching, token totals, and estimated USD for catalogued models.
+- Shadow-Git checkpoints with undo/rewind, plus resumable run state and redacted traces.
+- Root `AGENTS.md` / `ONEHAND.md` instructions, session context, and optional MCP servers with tool permissions.
+- Read-only explore and review sub-agents with separate histories and shared budgets.
+- A local Web UI for runs, checkpoint diffs, evaluation completeness, metrics, and reports.
+- Offline deterministic scenarios and a SWE-bench harness with explicit profiles, container execution, grading, manifests, cost caps, and dev/holdout splits.
+- Atomic writes, confined paths, protected secrets, and a shell-free local command policy. Docker execution is a library/harness option; the CLI runs locally.
 
 OneHand is a tool-using agent, not a general-purpose sandbox. Running tests or build programs can execute code from the target repository, so use it only with repositories you trust. See [SECURITY.md](SECURITY.md).
 
@@ -89,7 +90,7 @@ The command prints a local URL with a single-use access token. Port `0` (the def
 
 - **Runs:** newest first, with task, repository basename, provider/model, status, stop reason, rounds, calls, tokens and update time. Run details show plan evidence, usage totals, the final message and trace events, including masking, sub-agents, permissions and checkpoints. Raw conversation history and stored tool outputs are excluded.
 - **Checkpoints:** list the run repository's shadow-Git snapshots and display a colored unified diff against its current tree. There is no restore action. The existing `CheckpointStore.list()`/`diff()` methods may initialize or update internal shadow-Git metadata and temporary objects; they leave the source working tree and its Git history/index unchanged. Avoid concurrent checkpoint operations from other processes.
-- **Evaluations:** per-variant metrics, SVG cost/resolved-rate bars, and safe Markdown views of `report.md`, `compare-*.md` and `analysis.md`. Directories named with `INVALID` or containing `INVALID.txt` are labeled invalidated and excluded from detail views. Unrecorded metrics display `—`, including token means absent from older per-variant summaries; the UI does not rerun evaluations.
+- **Evaluations:** per-variant metrics, readable run completeness, overall token means, SVG cost/resolved-rate bars, and safe Markdown views of `report.md`, `compare-*.md` and `analysis.md`. Directories named with `INVALID` or containing `INVALID.txt` are labeled invalidated and excluded from detail views. A single variant can use the recorded overall token means; missing per-variant metrics display `—`. The UI does not rerun evaluations.
 
 The server binds only `127.0.0.1`. The one-time `?token=` URL is exchanged for an `HttpOnly; SameSite=Strict` session cookie and redirected to a clean URL. Keep that URL private; restart the server to obtain a new one. Every page, asset and API request requires authentication. Exact loopback Host headers and same-origin API Origin headers prevent DNS rebinding and cross-origin access. Only GET is accepted. CSP blocks inline scripts/styles and framing; responses also use `nosniff`, `no-referrer` and `no-store`.
 
@@ -103,7 +104,7 @@ onehand chat --repo /path/to/trusted/repo --mode ask \
   --provider deepseek --model deepseek-v4-pro --thinking enabled --reasoning-effort high
 ```
 
-Chat defaults to `edit`. Mode defaults are:
+Chat defaults to `edit` mode and the `ctx` profile. Both `run` and `chat` accept `--profile baseline`; profiles requiring Docker are rejected locally. Mode defaults are:
 
 | Mode | Read and plan | Write and execute | Completion |
 | --- | --- | --- | --- |
@@ -115,7 +116,9 @@ For an approval, answer `y` (yes), `n` (no), or `a` (always for this session). A
 
 Use `/mode ask|edit|auto` to switch modes, `/diff` to inspect the working-tree diff, `/undo` to restore the checkpoint before the last run's first mutation, and `/checkpoints` plus `/rewind <n>` to restore an older checkpoint (1 is newest). Edit and auto runs snapshot before the first write or execution in each model turn. Checkpoints live in `~/.onehand/checkpoints/`, separately from your repository's Git history and index; `ONEHAND_CHECKPOINT_DIR` overrides that location and must stay outside the work tree. Ignored and protected paths are excluded, and files over 5 MB are skipped with a note. Undo leaves excluded files untouched, including directories whose ignored contents would prevent restoring a snapshot file. Empty directories may remain. Use one chat session per repository at a time; checkpoint operations across processes are not serialized.
 
-Root `AGENTS.md` instructions (or `ONEHAND.md` when absent) are loaded at startup, capped at 8 KB, and shown by `/memory`. Each new task also receives the last five inputs and answers, capped at 500 characters each. `/model <id>` changes the model, `/cost` shows session token totals, and `/help` lists commands. Cost is currently reported as tokens: the packaged CLI has no model-price catalog.
+Root `AGENTS.md` instructions (or `ONEHAND.md` when absent) are loaded at startup, capped at 8 KB, and shown by `/memory`. Each new task also receives the last five inputs and answers, capped at 500 characters each. `/model <id>` changes the model; `/profile <name>` switches the local profile, which also appears in the banner and `/help`.
+
+Run status and `/cost` show tokens plus estimated USD for catalogued models, using the current UTC peak/off-peak rate. Session estimates keep each model's usage separate; unknown models show tokens only, and mixed sessions label partial estimates. Prices are a local snapshot, not a billing record; Chinese public-holiday exceptions are not encoded in the weekday schedule. Evaluation manifests retain their pinned peak-price snapshots.
 
 Optional `.onehand/config.json` permissions:
 
@@ -130,7 +133,7 @@ Optional `.onehand/config.json` permissions:
 
 Repeat `--allow <pattern>` and `--deny <pattern>` on `chat` for CLI rules. Denies always win, including over session approvals. Otherwise rules resolve from CLI to project config to `~/.onehand/config.json`, then the mode default. Command patterns compare the exact program and argument prefix; they are not shell globs. Explicit rules override mode defaults for writes and execution. Read and plan tools bypass the approval hook. Invalid config is a startup error. All modes and approvals remain subject to the hard path and command policy.
 
-These features are opt-in library options (`onEvent`, `authorize`, `completion`, `checkpoints`, and `projectInstructions`). `onehand run` and evaluation calls retain their existing completion, prompts, budgets, and tracing behavior.
+Interactive features are opt-in library options (`onEvent`, `authorize`, `completion`, `checkpoints`, and `projectInstructions`). The library defaults to `baseline`; evaluation calls pass explicit profiles. The local CLI selects `ctx` without changing those evaluation settings.
 
 ## MCP servers
 
@@ -162,9 +165,9 @@ In chat, MCP calls bypass planning but require permission. Their defaults are **
 
 ## Sub-agents
 
-The `exploreSubagent` feature adds `explore({ question })`. It runs a separate, read-only agent and returns a report of at most 300 words with file paths and line numbers. Its history stays separate; the parent receives only its report. The `ctx-sandbox-plan-explore` profile enables this feature on top of `ctx-sandbox-plan` for the E9 evaluation arm.
+Chat exposes `explore({ question })` with every local profile. It runs a separate, read-only agent instructed to return at most 300 words with file paths and line numbers. Its history stays separate; the parent receives only its report. In evaluations, the `exploreSubagent` flag enables this tool only for the `ctx-sandbox-plan-explore` E9 arm.
 
-Chat also exposes `review_changes({})`, and `/review` runs it directly using the latest task, tracked diff against `HEAD` (including staged changes), a status list for inspecting untracked files, and last plan. The diff/status context is capped at 30 KB. The reviewer reports concrete defects with file and line references or says `no blocking issues`. Review is enabled by `interactiveTools: ["review_changes"]` and is never included in evaluation profiles.
+Chat also exposes `review_changes({})`, and `/review` runs it directly using the latest task, tracked diff against `HEAD` (including staged changes), a status list for inspecting untracked files, and last plan. The diff/status context is capped at 30 KB. The reviewer reports concrete defects with file and line references or says `no blocking issues`. Chat enables these tools through `interactiveTools: ["explore", "review_changes"]`, separately from evaluation profiles.
 
 Both presets can list, search and read files, inspect Git status/diff, and use only read-only inspection commands when the parent enables `sandboxCommands`. They cannot write, run tests, manage plans, call MCP tools or start another sub-agent. They share the parent's remaining steps, tool calls, input/output tokens and wall time, capped further at 20 steps, 30 tool calls and 400,000 input tokens per child. Token and tool usage is included in parent totals; child rounds are reported separately as `subagentRounds` and consume the shared step budget. They inherit provider/model settings and use the parent's cache-isolation nonce with a `-sub<n>` suffix. Trace and REPL events mark when each child starts and finishes.
 
@@ -173,14 +176,14 @@ Both presets can list, search and read files, inspect Git status/diff, and use o
 The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support seven named profiles:
 
 - `baseline`: unchanged tool definitions, prompts, JSON observations, and command policy.
-- `ctx`: windowed, numbered reads; grouped search and directory summaries (E4); compact text observations (E3).
+- `ctx`: windowed, numbered reads; grouped search and gitignore-aware directory listings (E4); compact text observations (E3).
 - `ctx-sandbox`: `ctx` plus inline Python/Node and read-only git/grep/sed commands in an isolated container (E8). Requires a Docker executor; local executors reject it.
 - `ctx-sandbox-mask`: `ctx-sandbox` plus deterministic observation masking (E5). When the previous response reports more than 48,000 prompt tokens, retain the newest complete tool rounds within a 48 KiB serialized-history budget (at least 2, at most 10). Assistant text, reasoning, and tool results all count toward that budget; the minimum 2 rounds may exceed it. Apply a masking block only if the full history, including its replacement context note, shrinks by at least 32 KiB. Otherwise history and note placement remain untouched, preserving the prompt-cache prefix. A real event refreshes the plan/modified-files note, checkpoints masked history, and traces `bytesRemoved`, `bytesKept`, and `keptRounds`.
 - `full`: `ctx-sandbox-mask` plus lean planning (E1): atomic batched `update_plan`, transactional `finish_task stepEvidence`, pre-plan tests and read-only inspection, and content-based mutation tracking.
 - `ctx-sandbox-plan`: `ctx-sandbox` plus lean planning (E1), without observation masking.
 - `ctx-sandbox-plan-explore`: `ctx-sandbox-plan` plus the isolated, budget-sharing `explore` sub-agent (E9).
 
-Feature flags are validated booleans and default to false. Unknown flags are rejected. The CLI still uses `baseline`.
+Feature flags are validated booleans and default to false. Unknown flags are rejected. Local `run` and `chat` default to `ctx`; all `sandboxCommands` profiles require a Docker executor.
 
 All five historical profiles retain their original prompts, tool schemas, and behavior fingerprints. The two `ctx-sandbox-plan` profiles have distinct fingerprints and are included in normal `PROFILES` enumeration. Masking makes no extra model calls and does not discount token budgets. Lean-planning profiles hash their effective lean prompt and tool schemas in their behavior fingerprints.
 
@@ -195,6 +198,8 @@ All five historical profiles retain their original prompts, tool schemas, and be
 4. Repeating the same failed tool action twice requires a plan update before further action.
 5. `finish_task` is rejected while a step is incomplete, replanning is required, or the newest write lacks passing verification.
 6. Each tool round is checkpointed when persistence is enabled. Resume rejects state from a different task, repository, provider, model, or Git commit.
+
+CLI `--resume` requires an explicit `--profile` matching the original run (`baseline` for older CLI runs). This prevents the new `ctx` default from silently changing a resumed session; saved state does not yet validate profile identity.
 
 With `leanPlanning`, `run_tests` and sandbox read-only inspection can run before a plan or while a replan is required. Edits, inline code, and other commands still require a plan. `update_plan` accepts `updates: [{ stepId, status, evidence? }]` (1–8 entries); only `set_plan` or an update carrying non-empty evidence clears required replanning. That evidence must name the failure. `finish_task` can complete remaining steps using `stepEvidence: [{ stepId, evidence }]`; rejection restores the entire previous plan. Commands and tests increment the write revision only when repository content changes, and no-op file edits preserve verification.
 
@@ -213,7 +218,7 @@ The default tool policy:
 - redacts common credential patterns in state and traces;
 - runs host Git with fsmonitor, hooks, external diff drivers and textconv disabled, so repository-local Git configuration cannot run programs.
 
-Model requests are retried on HTTP 429/5xx, timeouts, and connection errors (including `ECONNREFUSED`), with exponential backoff up to `--max-api-attempts`. As a result, a run against an unreachable endpoint fails after the retries rather than immediately.
+Model requests are retried on HTTP 429/5xx, timeouts, and connection errors (including `ECONNREFUSED`), with exponential backoff up to the configured retry limit. A run against an unreachable endpoint fails after those retries.
 
 These controls limit the model's direct tools. They do **not** isolate code executed by an allowed test/build program. Use a container or VM when stronger isolation is required.
 
@@ -225,10 +230,11 @@ The Docker executor is an isolation aid, not a security boundary against a hosti
 npm run typecheck
 npm test
 npm run build
+npm run demo
 npm run eval:deterministic
 ```
 
-The local suite has 532 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 55 files:
+The local suite has 583 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 59 files. Offline validation with the local dataset passes 585 tests and skips the 6 Docker tests:
 
 - A 10-scenario Agent suite, run against temporary Git fixtures. It covers multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry.
 - Provider-contract tests. One checks that DeepSeek `reasoning_content` is sent back on later tool-carrying requests; another checks that no `temperature` is sent in thinking mode; another checks that a reasoning-only, tool-call-free turn replays with string content instead of `content: null`.
@@ -251,7 +257,7 @@ The local suite has 532 self-contained deterministic tests, 2 local-dataset chec
   - `run_tests` target validation and the operator-trusted test command.
 - Fingerprint tests for the pure `fingerprintOf` hash and its sensitivity to any single input change, and for the agent-profile part of the behavior fingerprint.
 - MCP tests use the official SDK with in-memory and local stdio transports, including discovery, collisions, configuration, permissions, errors, timeouts and scripted runner integration. Sub-agent tests cover isolation, shared budgets, read-only tools, depth limits and REPL review.
-- Phase 2 profile tests pin all three existing fingerprints, exercise masking for DeepSeek and OpenAI histories with trace/checkpoint/resume checks, and cover lean plan transactions, inspection gates, and real-content mutation tracking. A scripted `full` run exercises both features together without Docker or network access.
+- Profile tests preserve pinned fingerprints, exercise masking for DeepSeek and OpenAI histories with trace/checkpoint/resume checks, and cover lean plan transactions, inspection gates, and real-content mutation tracking. CLI/REPL tests cover local defaults, switching, Docker rejection, sub-agents, and estimated costs; pricing tests preserve evaluation snapshots. A scripted `full` run exercises both features together without Docker or network access.
 - Evaluation-harness tests for: the cost cap surviving a resume for a thrown run's worst-case charge; a mis-keyed row being substituted instead of crashing a later "Duplicate" check; the audited copy in `invalid-results.jsonl` staying redacted; and the source fingerprint changing when any tracked file changes.
 - An offline integration test that drives the real evaluation `runOne` path with a scripted DeepSeek client, including that the trace's frozen budgets match the manifest exactly.
 - SWE-bench plumbing tests:
@@ -288,11 +294,11 @@ The checked-in harness uses synthetic, repository-local coding tasks so it can t
 
 The checked-in task definitions and exact acceptance assertions are public. "Hidden" refers only to runtime isolation from the model-visible fixture, not to a private or contamination-resistant benchmark. Any future result on this set is a project diagnostic; broader resume claims require a separate unpublished holdout or an independent evaluator.
 
-The harness fails closed when runs are missing or the cost cap is reached. **No real-model pilot or full evaluation has been run for the current public evidence set**, so this README claims no resolved rate, latency, token cost, or model-quality result. See [eval/README.md](eval/README.md).
+The harness fails closed when runs are missing or the cost cap is reached. Results will be published only from the pre-registered final evaluation. This README makes no performance claims. See [eval/README.md](eval/README.md).
 
 ## Project status
 
-OneHand is an auditable personal engineering project, not a production service. Current limitations include no OS-level sandbox, no distributed execution, no long-term semantic memory, and no benchmark claim against other agents.
+Phase 3 polish prepares the CLI, chat, and artifact viewer for code freeze. Local use defaults to `ctx` (E4+E3); `ctx-sandbox` adds Docker-only E8, while E5/E1/E9 remain explicit experiment flags. Checkpoints, project instructions, MCP, sub-agents, the Web UI, and the SWE-bench harness are implemented. The local CLI does not isolate repository programs, and there is no distributed execution or long-term semantic memory. Results will be published only from the pre-registered final evaluation.
 
 ## License
 

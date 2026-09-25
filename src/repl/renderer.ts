@@ -1,6 +1,7 @@
 import type { Writable } from "node:stream";
 import type { AgentEvent } from "../agent/events.js";
-import type { PlanSnapshot, RunReport } from "../types.js";
+import type { PlanSnapshot, RunReport, RunUsage } from "../types.js";
+import { currentPriceSnapshotFor, estimateCost } from "../pricing.js";
 
 type Clock = {
   now(): number;
@@ -79,14 +80,18 @@ export class ReplRenderer {
     }
   };
 
-  finish(report: RunReport): void {
+  finish(report: RunReport, model?: string): void {
     this.stopThinking();
     if (report.finalMessage && !this.finalRendered) this.write(report.finalMessage);
     const usage = report.usage;
     const details = usage
-      ? `${usage.modelRounds} rounds${usage.subagentRounds ? ` + ${usage.subagentRounds} subagent rounds` : ""} · ${usage.totalTokens} tokens`
+      ? `${usage.modelRounds} rounds${usage.subagentRounds ? ` + ${usage.subagentRounds} subagent rounds` : ""} · ${usage.totalTokens} tokens${costSuffix([[model ?? "", usage]], this.clock.now())}`
       : "usage unavailable";
     this.write(this.paint("2", `${report.status} · ${details}`));
+  }
+
+  cost(totals: RunUsage, usageByModel: ReadonlyMap<string, RunUsage>): void {
+    this.write(`${totals.modelRounds} rounds${totals.subagentRounds ? ` + ${totals.subagentRounds} subagent rounds` : ""} · ${totals.toolCalls} tool calls · ${totals.totalTokens} tokens${costSuffix(usageByModel, this.clock.now())}`);
   }
 
   stop(): void {
@@ -158,3 +163,17 @@ function planMark(status: PlanSnapshot["steps"][number]["status"]): string {
 }
 
 export type { Clock };
+
+function costSuffix(usageByModel: Iterable<[string, RunUsage]>, now: number): string {
+  let cost = 0;
+  let basis: string | undefined;
+  let partial = false;
+  for (const [model, usage] of usageByModel) {
+    const price = currentPriceSnapshotFor(model, new Date(now));
+    if (price) {
+      cost += estimateCost(usage, price);
+      basis = price.basis;
+    } else if (usage.totalTokens > 0) partial = true;
+  }
+  return basis ? ` · ~$${cost.toFixed(4)} (${basis} est.${partial ? "; priced models only" : ""})` : "";
+}

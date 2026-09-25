@@ -1,6 +1,9 @@
 import type { ImageSource, SwebenchExclusion, SwebenchSplit } from "./swebench/dataset.js";
 import type { GradingOutcome } from "./swebench/grade.js";
 import { EvaluationCategory } from "./tasks.js";
+import type { PriceSnapshot } from "../src/pricing.js";
+
+export type { PriceSnapshot } from "../src/pricing.js";
 
 export type EvaluationRunResult = {
   schemaVersion: 1;
@@ -84,17 +87,6 @@ export type EvaluationManifest = {
   };
   priceSnapshot: PriceSnapshot;
   tasks: Array<{ id: string; category: EvaluationCategory; hash: string }>;
-};
-
-export type PriceSnapshot = {
-  source: string;
-  checkedAt: string;
-  model: string;
-  basis: "peak";
-  peakHoursUtc: string;
-  inputCacheHitPerMillionUsd: number;
-  inputCacheMissPerMillionUsd: number;
-  outputPerMillionUsd: number;
 };
 
 // Phase 1 Stage B2 (SWE-bench) row: one agent variant on one instance. The common fields keep the

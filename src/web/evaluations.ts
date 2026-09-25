@@ -18,6 +18,7 @@ export type VariantSummary = {
   meanInputTokens: number | null;
   meanOutputTokens: number | null;
   complete: boolean | null;
+  completenessLabel: string;
   completeness: unknown;
 };
 
@@ -27,7 +28,10 @@ export type EvaluationDetail = {
   id: string;
   invalidated: false;
   complete: boolean | null;
+  completenessLabel: string;
   completeness: unknown;
+  meanInputTokens: number | null;
+  meanOutputTokens: number | null;
   variants: VariantSummary[];
   reports: Array<{ name: string; html: string }>;
 };
@@ -67,25 +71,35 @@ export async function readEvaluation(root: ConfinedDirectory, id: string): Promi
     name,
     html: renderMarkdown(await root.read(id, name, MAX_REPORT_BYTES))
   })));
+  const complete = booleanValue(summary.complete);
+  const completeness = completenessForSummary(summary);
+  const tokenMeans = tokenMeansForSummary(summary);
 
   return {
     id,
     invalidated: false,
-    complete: booleanValue(summary.complete),
-    completeness: completenessForSummary(summary),
-    variants: normalizeVariants(summary, manifest),
+    complete,
+    completenessLabel: completenessLabel(complete, completeness),
+    completeness,
+    meanInputTokens: tokenMeans.input,
+    meanOutputTokens: tokenMeans.output,
+    variants: normalizeVariants(summary, manifest, tokenMeans),
     reports
   };
 }
 
-function normalizeVariants(summary: JsonObject, manifest: JsonObject): VariantSummary[] {
+type TokenMeans = { input: number | null; output: number | null };
+
+function normalizeVariants(summary: JsonObject, manifest: JsonObject, tokenMeans: TokenMeans): VariantSummary[] {
   const perVariant = objectArray(summary.perVariant);
   if (perVariant.length > MAX_VARIANTS) throw new HttpError(413, "Evaluation has too many variants");
   const overallComplete = booleanValue(summary.complete);
-  if (perVariant.length) return perVariant.map((variant) => normalizePerVariant(variant, overallComplete));
+  if (perVariant.length) {
+    const singleVariantTokenMeans = perVariant.length === 1 ? tokenMeans : null;
+    return perVariant.map((variant) => normalizePerVariant(variant, overallComplete, singleVariantTokenMeans));
+  }
 
   const observedRuns = numberValue(summary.observedRuns);
-  const totals = objectValue(summary.tokens);
   const efficiency = objectValue(summary.efficiency);
   const resolved = objectValue(summary.resolved);
   const manifestVariants = objectArray(manifest.variants);
@@ -108,18 +122,15 @@ function normalizeVariants(summary: JsonObject, manifest: JsonObject): VariantSu
     meanRounds: numberValue(summary.meanRounds)
       ?? meanValue(summary.modelRounds)
       ?? meanValue(efficiency?.modelRounds),
-    meanInputTokens: numberValue(summary.meanInputTokens)
-      ?? meanValue(efficiency?.inputTokens)
-      ?? divide(numberValue(totals?.input), observedRuns),
-    meanOutputTokens: numberValue(summary.meanOutputTokens)
-      ?? meanValue(efficiency?.outputTokens)
-      ?? divide(numberValue(totals?.output), observedRuns),
+    meanInputTokens: tokenMeans.input,
+    meanOutputTokens: tokenMeans.output,
     complete: booleanValue(summary.complete),
+    completenessLabel: completenessLabel(booleanValue(summary.complete), completenessForSummary(summary)),
     completeness: completenessForSummary(summary)
   }];
 }
 
-function normalizePerVariant(value: JsonObject, overallComplete: boolean | null): VariantSummary {
+function normalizePerVariant(value: JsonObject, overallComplete: boolean | null, overallTokenMeans: TokenMeans | null): VariantSummary {
   const completeness = value.completeness !== undefined
     ? redactDeep(value.completeness)
     : select(value, ["plannedRuns", "observedRuns"]);
@@ -130,16 +141,47 @@ function normalizePerVariant(value: JsonObject, overallComplete: boolean | null)
     observedRuns !== null && observedRuns !== plannedRuns
     || scoredRuns !== null && scoredRuns < plannedRuns
   );
+  const complete = booleanValue(value.complete) ?? (overallComplete === true ? true : incompleteCounts ? false : null);
   return {
     name: boundedName(stringValue(value.name) ?? stringValue(value.variant) ?? "unknown"),
     resolvedRate: numberValue(value.resolvedRate) ?? numberValue(value.rate),
     costPerRun: numberValue(value.costPerRun) ?? numberValue(value.meanCostUsd),
     meanRounds: numberValue(value.meanRounds) ?? numberValue(value.meanModelRounds),
-    meanInputTokens: numberValue(value.meanInputTokens),
-    meanOutputTokens: numberValue(value.meanOutputTokens),
-    complete: booleanValue(value.complete) ?? (overallComplete === true ? true : incompleteCounts ? false : null),
+    meanInputTokens: numberValue(value.meanInputTokens) ?? overallTokenMeans?.input ?? null,
+    meanOutputTokens: numberValue(value.meanOutputTokens) ?? overallTokenMeans?.output ?? null,
+    complete,
+    completenessLabel: completenessLabel(complete, completeness),
     completeness
   };
+}
+
+function tokenMeansForSummary(summary: JsonObject): TokenMeans {
+  const observedRuns = numberValue(summary.observedRuns);
+  const totals = objectValue(summary.tokens);
+  const efficiency = objectValue(summary.efficiency);
+  return {
+    input: numberValue(summary.meanInputTokens)
+      ?? meanValue(efficiency?.inputTokens)
+      ?? divide(numberValue(totals?.input), observedRuns),
+    output: numberValue(summary.meanOutputTokens)
+      ?? meanValue(efficiency?.outputTokens)
+      ?? divide(numberValue(totals?.output), observedRuns)
+  };
+}
+
+function completenessLabel(complete: boolean | null, completeness: unknown): string {
+  const status = complete === true ? "complete" : complete === false ? "incomplete" : "completeness unrecorded";
+  const counts = objectValue(completeness);
+  if (!counts) return status;
+  const planned = numberValue(counts.plannedRuns);
+  const observed = numberValue(counts.observedRuns);
+  const recordedMissing = numberValue(counts.missingRuns);
+  const missing = recordedMissing ?? (planned !== null && observed !== null && observed < planned ? planned - observed : null);
+  const parts = [status];
+  if (planned !== null && observed !== null) parts.push(`${observed}/${planned} runs`);
+  else if (observed !== null) parts.push(`${observed} runs`);
+  if (missing !== null && missing > 0) parts.push(`${missing} missing`);
+  return parts.join(" · ");
 }
 
 function completenessForSummary(summary: JsonObject): unknown {

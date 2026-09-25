@@ -411,14 +411,14 @@ function variantTable(variants) {
   const table = document.createElement("table");
   const thead = document.createElement("thead");
   const header = document.createElement("tr");
-  ["Variant", "Resolved", "Cost / run", "Rounds", "Input tokens", "Output tokens", "Complete", "Completeness"].forEach(function (title) {
+  ["Variant", "Resolved", "Cost / run", "Rounds", "Input tokens", "Output tokens", "Completeness"].forEach(function (title) {
     header.appendChild(element("th", "", title));
   });
   thead.appendChild(header);
   const tbody = document.createElement("tbody");
   variants.forEach(function (variant) {
     const row = document.createElement("tr");
-    [variant.name, formatPercent(variant.resolvedRate), formatMoney(variant.costPerRun), formatNumber(variant.meanRounds), formatNumber(variant.meanInputTokens), formatNumber(variant.meanOutputTokens), variant.complete === null ? "—" : variant.complete ? "Yes" : "No", valueText(variant.completeness)].forEach(function (value) {
+    [variant.name, formatPercent(variant.resolvedRate), formatMoney(variant.costPerRun), formatNumber(variant.meanRounds), formatNumber(variant.meanInputTokens), formatNumber(variant.meanOutputTokens), variant.completenessLabel || "Completeness unrecorded"].forEach(function (value) {
       row.appendChild(element("td", "", value));
     });
     tbody.appendChild(row);
@@ -469,8 +469,12 @@ async function showEvaluation(evaluationId, target) {
   const data = await api("/api/evaluations/" + encodeURIComponent(evaluationId));
   append(target, link("#evaluations", "back", "← All evaluations"), pageHeading("Evaluation", data.id, "Variant metrics and rendered local reports."));
   const overall = element("section", "panel");
-  const overallStatus = data.complete === true ? "Complete" : data.complete === false ? "Incomplete" : "Completeness unrecorded";
-  append(overall, element("h2", "", "Overall completeness"), badge(overallStatus), element("p", "muted", valueText(data.completeness)));
+  const tokenMeans = element("div", "usage");
+  append(tokenMeans,
+    metric("Mean input tokens", formatNumber(data.meanInputTokens)),
+    metric("Mean output tokens", formatNumber(data.meanOutputTokens))
+  );
+  append(overall, element("h2", "", "Overall completeness"), badge(data.completenessLabel || "Completeness unrecorded"), tokenMeans);
   target.appendChild(overall);
   const variants = Array.isArray(data.variants) ? data.variants : [];
   const metrics = element("section", "panel");

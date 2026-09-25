@@ -11,31 +11,15 @@ import { runAgent } from "../src/agent/runner.js";
 import { redactDeep } from "../src/agent/persistence.js";
 import { DeepSeekChatProvider } from "../src/providers/deepseek.js";
 import type { ModelProvider } from "../src/providers/types.js";
+import { estimateCost, priceSnapshotFor } from "../src/pricing.js";
 import { InvalidResultError, openResults, runJobs } from "./core.js";
 import { prepareFixture, hashTask, PreparedFixture } from "./fixture.js";
 import { EvaluationTask, tasksFor } from "./tasks.js";
-import { EvaluationManifest, EvaluationRunResult, PriceSnapshot } from "./types.js";
+import { EvaluationManifest, EvaluationRunResult } from "./types.js";
+
+export { estimateCost, priceSnapshotFor };
 
 const execFileAsync = promisify(execFile);
-
-// Peak list prices in USD per 1M tokens. Off-peak is a uniform 50%, so peak is a conservative upper bound.
-const PEAK_PRICES = new Map([
-  ["deepseek-flash", { inputCacheHitPerMillionUsd: 0.006, inputCacheMissPerMillionUsd: 0.3, outputPerMillionUsd: 1.2 }],
-  ["deepseek-v4-pro", { inputCacheHitPerMillionUsd: 0.044, inputCacheMissPerMillionUsd: 1.32, outputPerMillionUsd: 3.96 }]
-]);
-
-export function priceSnapshotFor(model: string): PriceSnapshot {
-  const price = PEAK_PRICES.get(model);
-  if (!price) throw new Error(`No verified price snapshot for model: ${model}`);
-  return {
-    source: "https://api-docs.deepseek.com/quick_start/pricing/",
-    checkedAt: "2026-09-25",
-    model,
-    basis: "peak",
-    peakHoursUtc: "01:00-04:00 and 06:00-10:00 UTC, Monday-Friday, excluding Chinese public holidays",
-    ...price
-  };
-}
 
 export const LIMITS = {
   maxSteps: 20,
@@ -417,15 +401,6 @@ async function runOne(options: EvaluationRunRequest): Promise<EvaluationRunResul
     await fixture.cleanup();
     await rm(stateDir, { recursive: true, force: true });
   }
-}
-
-export function estimateCost(
-  usage: { cacheHitInputTokens: number; cacheMissInputTokens: number; outputTokens: number },
-  price: PriceSnapshot
-): number {
-  return usage.cacheHitInputTokens / 1_000_000 * price.inputCacheHitPerMillionUsd +
-    usage.cacheMissInputTokens / 1_000_000 * price.inputCacheMissPerMillionUsd +
-    usage.outputTokens / 1_000_000 * price.outputPerMillionUsd;
 }
 
 // sha256 over the sorted relative paths and contents of every .ts file under srcDir, so any

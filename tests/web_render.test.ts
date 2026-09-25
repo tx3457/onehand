@@ -1,6 +1,27 @@
 import { execFileSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
+import { WEB_JS } from "../src/web/assets.js";
 import { renderMarkdown } from "../src/web/markdown.js";
+
+class FakeElement {
+  children: FakeElement[] = [];
+  className = "";
+  textContent = "";
+  href = "";
+
+  appendChild(child: FakeElement): FakeElement {
+    this.children.push(child);
+    return child;
+  }
+
+  replaceChildren(...children: FakeElement[]) {
+    this.children = children;
+  }
+
+  setAttribute() {}
+  addEventListener() {}
+}
 
 describe("renderMarkdown", () => {
   it("escapes raw HTML before applying Markdown formatting", () => {
@@ -89,5 +110,40 @@ describe("renderMarkdown", () => {
     expect(html).toContain('<a href="https://example.test/report">secure</a>');
     expect(html).toContain("<p>bad</p>");
     expect(html).not.toContain("javascript:");
+  });
+});
+
+describe("evaluation browser rendering", () => {
+  it("renders readable completeness, recorded tokens, and dashes only for missing tokens", () => {
+    const document = {
+      getElementById: () => new FakeElement(),
+      createElement: () => new FakeElement(),
+      createElementNS: () => new FakeElement(),
+      createDocumentFragment: () => new FakeElement(),
+      createTextNode: (text: string) => Object.assign(new FakeElement(), { textContent: text }),
+      querySelectorAll: () => []
+    };
+    const context = {
+      document,
+      window: { addEventListener() {} },
+      location: { hash: "#runs" },
+      fetch: async () => ({ ok: true, json: async () => ({ runs: [] }) }),
+      Intl: { NumberFormat: class { format(value: number) { return String(value); } } }
+    } as Record<string, unknown>;
+    runInNewContext(`${WEB_JS}\nglobalThis.renderVariantTable = variantTable;`, context);
+    const renderVariantTable = context.renderVariantTable as (variants: unknown[]) => FakeElement;
+
+    const wrap = renderVariantTable([
+      { name: "recorded", resolvedRate: null, costPerRun: null, meanRounds: null, meanInputTokens: 0, meanOutputTokens: 17, completenessLabel: "complete · 25/25 runs" },
+      { name: "missing", resolvedRate: null, costPerRun: null, meanRounds: null, meanInputTokens: null, meanOutputTokens: null, completenessLabel: "incomplete · 24/25 runs · 1 missing" }
+    ]);
+    const rows = wrap.children[0]!.children[1]!.children;
+
+    expect(rows[0]!.children.map((cell) => cell.textContent)).toEqual([
+      "recorded", "—", "—", "—", "0", "17", "complete · 25/25 runs"
+    ]);
+    expect(rows[1]!.children.map((cell) => cell.textContent)).toEqual([
+      "missing", "—", "—", "—", "—", "—", "incomplete · 24/25 runs · 1 missing"
+    ]);
   });
 });

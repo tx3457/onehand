@@ -1,6 +1,7 @@
 import type { Readable, Writable } from "node:stream";
 import { homedir } from "node:os";
 import { loadProjectInstructions } from "../agent/projectMemory.js";
+import { resolveLocalProfile } from "../agent/localProfile.js";
 import { runAgent, type RunAgentOptions } from "../agent/runner.js";
 import { runSubagent } from "../agent/subagents.js";
 import { summarizeEventArguments, type AgentEvent } from "../agent/events.js";
@@ -30,6 +31,7 @@ export type ReplProviderOptions = {
 export type RunReplOptions = ReplProviderOptions & {
   repoPath: string;
   mode?: PermissionMode;
+  profile?: string;
   thinking?: "enabled" | "disabled";
   reasoningEffort?: "high" | "max";
   temperature?: number;
@@ -46,10 +48,11 @@ type MemoryEntry = { input: string; finalMessage: string };
 
 const HELP = [
   "/help", "/mode <ask|edit|auto>", "/diff", "/undo", "/rewind <n>",
-  "/checkpoints", "/cost", "/model <id>", "/memory", "/mcp", "/review", "/exit"
+  "/checkpoints", "/cost", "/model <id>", "/profile <name>", "/memory", "/mcp", "/review", "/exit"
 ].join(" · ");
 
 export async function runRepl(options: RunReplOptions): Promise<void> {
+  let profile = resolveLocalProfile(options.profile);
   const inputStream = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
   const interactive = Boolean((output as Writable & { isTTY?: boolean }).isTTY);
@@ -70,6 +73,7 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
   const run = options.runAgentFn ?? runAgent;
   const memory: MemoryEntry[] = [];
   const totals = emptyUsage();
+  const usageByModel = new Map<string, RunUsage>();
   let model = options.model;
   let lastRunCheckpoint: string | undefined;
   let firstEmptyInterrupt = false;
@@ -77,7 +81,7 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
   let lastTask = "Review the current repository changes for correctness.";
   let lastPlan: PlanSnapshot | undefined;
 
-  renderer.message(`OneHand chat · ${permissions.mode} mode · ${repoRoot}`);
+  renderer.message(`OneHand chat · ${permissions.mode} mode · profile: ${profile.name} · ${repoRoot}`);
   try {
     await mcp.connect(mcpConfig);
     while (true) {
@@ -113,11 +117,13 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
           baseURL: options.baseURL,
           apiKey: options.apiKey
         });
+        const runModel = modelFor(provider);
         const report = await run({
           task: taskWithMemory(value, memory),
           repoPath: repoRoot,
           provider,
-          model,
+          model: runModel,
+          profile,
           thinking: options.thinking,
           reasoningEffort: options.reasoningEffort,
           temperature: options.temperature,
@@ -126,7 +132,7 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
           mode: permissions.mode,
           authorize,
           extraTools: mcp,
-          interactiveTools: ["review_changes"],
+          interactiveTools: ["explore", "review_changes"],
           completion: permissions.mode === "ask" ? "answer" : "finish_task",
           checkpoints: permissions.mode === "ask" ? false : checkpoints,
           projectInstructions,
@@ -139,8 +145,8 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
         lastRunCheckpoint = checkpointForRun;
         lastTask = value;
         lastPlan = report.plan;
-        addUsage(totals, report.usage);
-        renderer.finish(report);
+        recordUsage(runModel, report.usage);
+        renderer.finish(report, runModel);
         memory.push({ input: value, finalMessage: report.finalMessage });
         if (memory.length > 5) memory.splice(0, memory.length - 5);
       } catch (error) {
@@ -157,6 +163,18 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
     renderer.stop();
     reader.close();
     await mcp.close();
+  }
+
+  function modelFor(provider: ModelProvider): string {
+    return model ?? (provider.name === "deepseek" ? "deepseek-v4-pro" : process.env.OPENAI_MODEL ?? "gpt-5.5");
+  }
+
+  function recordUsage(runModel: string, usage?: RunUsage): void {
+    if (!usage) return;
+    addUsage(totals, usage);
+    const modelUsage = usageByModel.get(runModel) ?? emptyUsage();
+    addUsage(modelUsage, usage);
+    usageByModel.set(runModel, modelUsage);
   }
 
   async function authorize(request: AuthorizationRequest): Promise<"allow" | "deny"> {
@@ -185,7 +203,16 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
       case "/exit":
         return true;
       case "/help":
+        renderer.message(`Profile: ${profile.name}`);
         renderer.message(HELP);
+        return false;
+      case "/profile":
+        if (args.length > 1) {
+          renderer.message("Usage: /profile <name>");
+        } else {
+          if (args.length) profile = resolveLocalProfile(args[0]);
+          renderer.message(`Profile: ${profile.name}`);
+        }
         return false;
       case "/mode": {
         const next = args[0];
@@ -232,7 +259,7 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
         return false;
       }
       case "/cost":
-        renderer.message(`${totals.modelRounds} rounds${totals.subagentRounds ? ` + ${totals.subagentRounds} subagent rounds` : ""} · ${totals.toolCalls} tool calls · ${totals.totalTokens} tokens`);
+        renderer.cost(totals, usageByModel);
         return false;
       case "/mcp":
         renderer.message(mcp.servers.length
@@ -246,17 +273,18 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
         renderer.startRun();
         try {
           const provider = await options.providerFactory({ provider: options.provider, model, baseURL: options.baseURL, apiKey: options.apiKey });
+          const runModel = modelFor(provider);
           const report = await runSubagent({
             preset: "review", task: lastTask, plan: lastPlan,
             parent: {
-              repoPath: repoRoot, provider, model,
+              repoPath: repoRoot, provider, model: runModel, profile,
               thinking: options.thinking, reasoningEffort: options.reasoningEffort, temperature: options.temperature,
               mode: permissions.mode, authorize, projectInstructions,
               persistence: false, signal: controller.signal, onEvent: renderer.handle
             }
           });
-          addUsage(totals, report.usage);
-          renderer.finish(report);
+          recordUsage(runModel, report.usage);
+          renderer.finish(report, runModel);
         } finally {
           renderer.stop();
           activeAbort = undefined;

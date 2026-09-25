@@ -17,7 +17,7 @@ import { maskProviderHistory } from "../providers/historyMasking.js";
 import { Executor, LocalExecutor, resolveDisplayRoot } from "../runtime/executor.js";
 import { PlanSnapshot, RunReport, RunStatus, RunUsage, StopReason, ToolResult } from "../types.js";
 import { renderToolResult } from "../tools/render.js";
-import { createToolRegistry, serializeToolResult, type ExtraTools } from "../tools/registry.js";
+import { createToolRegistry, EXPLORE_TOOL_DEFINITION, serializeToolResult, type ExtraTools } from "../tools/registry.js";
 import { gitDiff, gitStatus, HOST_DIFF_FLAGS, HostGitOptions, runHostGit } from "../tools/git.js";
 import { normalizeRepoRoot } from "../tools/pathGuard.js";
 import { isProtectedRepoPath, resolveInsideRepo, shouldSkipDir } from "../tools/pathGuard.js";
@@ -72,7 +72,7 @@ export type RunAgentOptions = {
   cacheIsolationNonce?: string;
   profile?: AgentProfile;
   extraTools?: ExtraTools;
-  interactiveTools?: ("review_changes")[];
+  interactiveTools?: ("explore" | "review_changes")[];
   // Internal controls used by the depth-one read-only sub-agent runner.
   subagentDepth?: number;
   readOnlyTools?: boolean;
@@ -204,15 +204,17 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   const usage: RunUsage = { ...(restored?.usage ?? DEFAULT_USAGE) };
   let subagentIndex = 0;
   const interactiveReview = options.subagentDepth === undefined && options.interactiveTools?.includes("review_changes") === true;
+  const interactiveExplore = options.subagentDepth === undefined && options.interactiveTools?.includes("explore") === true;
   const delegatedDefinitions = [
     ...(options.extraTools?.definitions ?? []),
+    ...(interactiveExplore && !features.exploreSubagent ? [EXPLORE_TOOL_DEFINITION] : []),
     ...(interactiveReview ? [REVIEW_CHANGES_TOOL_DEFINITION] : [])
   ];
-  const supportsSubagents = options.subagentDepth === undefined && (features.exploreSubagent === true || interactiveReview);
+  const supportsSubagents = options.subagentDepth === undefined && (features.exploreSubagent === true || interactiveExplore || interactiveReview);
   const delegatedTools: ExtraTools | undefined = options.extraTools || supportsSubagents ? {
     definitions: delegatedDefinitions,
     execute: async (name, args, context) => {
-      if ((name === "explore" && features.exploreSubagent === true) || (name === "review_changes" && interactiveReview)) {
+      if ((name === "explore" && (features.exploreSubagent === true || interactiveExplore)) || (name === "review_changes" && interactiveReview)) {
         subagentIndex += 1;
         usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
         const report = await runSubagent({

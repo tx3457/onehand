@@ -2,6 +2,7 @@
 import { writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { Command } from "commander";
+import { resolveLocalProfile } from "./agent/localProfile.js";
 import { runAgent } from "./agent/runner.js";
 import { createModelProvider } from "./providers/index.js";
 import { runRepl } from "./repl/index.js";
@@ -37,12 +38,17 @@ program
   .option("--max-wall-sec <n>", "maximum wall time in seconds", parsePositiveInt, 900)
   .option("--timeout-sec <n>", "command timeout in seconds", parsePositiveInt, 120)
   .option("--model-timeout-sec <n>", "timeout for one model request", parsePositiveInt, 180)
+  .option("--profile <name>", "agent profile", "ctx")
   .option("--run-dir <path>", "directory for state.json and trace.jsonl")
-  .option("--resume <path>", "resume a run directory or state.json")
+  .option("--resume <path>", "resume a run directory or state.json (requires explicit --profile)")
   .option("--json", "print JSON report")
   .option("--report <path>", "write JSON report to a file")
   .option("--dangerously-allow-destructive", "allow commands that are refused by default")
-  .action(async (task: string, options) => {
+  .action(async (task: string, options, command: Command) => {
+    const profile = resolveLocalProfile(options.profile);
+    if (options.resume && command.getOptionValueSource("profile") !== "cli") {
+      throw new Error("Resume requires explicit --profile matching the original run (use --profile baseline for older CLI runs)");
+    }
     const apiKey = options.provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error(`${options.provider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY"} is required for onehand run`);
 
@@ -67,6 +73,7 @@ program
       modelTimeoutMs: options.modelTimeoutSec * 1000,
       runDir: options.runDir,
       resume: options.resume,
+      profile,
       enforcePlanning: true,
       persistence: true,
       allowDestructive: options.dangerouslyAllowDestructive
@@ -95,9 +102,11 @@ program
   .option("--thinking <mode>", "DeepSeek thinking mode: enabled or disabled", parseThinking, "enabled")
   .option("--reasoning-effort <level>", "reasoning effort: high or max", parseReasoningEffort, "high")
   .option("--temperature <n>", "sampling temperature", parseNonNegativeNumber, 0.2)
+  .option("--profile <name>", "agent profile", "ctx")
   .option("--allow <pattern>", "allow a tool or command pattern", collect, [])
   .option("--deny <pattern>", "deny a tool or command pattern", collect, [])
   .action(async (options) => {
+    resolveLocalProfile(options.profile);
     const apiKey = options.provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error(`${options.provider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY"} is required for onehand chat`);
 
@@ -111,6 +120,7 @@ program
       thinking: options.thinking,
       reasoningEffort: options.reasoningEffort,
       temperature: options.temperature,
+      profile: options.profile,
       cliRules: { allow: options.allow, deny: options.deny },
       providerFactory: (providerOptions) => createModelProvider({
         provider: providerOptions.provider,
