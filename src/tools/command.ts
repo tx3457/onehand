@@ -105,6 +105,7 @@ export async function runShellCommand(options: {
   timeoutSec: number;
   allowDestructive?: boolean;
   outputLimitBytes?: number;
+  truncation?: "head" | "head_tail";
 }): Promise<ToolResult<CommandExecution>> {
   let parsed: StructuredCommand;
   try {
@@ -118,7 +119,8 @@ export async function runShellCommand(options: {
     cwd: options.cwd,
     timeoutSec: options.timeoutSec,
     allowDestructive: options.allowDestructive,
-    outputLimitBytes: options.outputLimitBytes
+    outputLimitBytes: options.outputLimitBytes,
+    truncation: options.truncation
   });
 }
 
@@ -130,6 +132,8 @@ export async function runProgramCommand(options: {
   timeoutSec: number;
   allowDestructive?: boolean;
   outputLimitBytes?: number;
+  // Callers that parse the output keep the head-only default; model-facing tools opt into head_tail.
+  truncation?: "head" | "head_tail";
 }): Promise<ToolResult<CommandExecution>> {
   const args = options.args ?? [];
   const policyError = commandPolicyError(options.program, args);
@@ -138,6 +142,7 @@ export async function runProgramCommand(options: {
   }
 
   const outputLimitBytes = options.outputLimitBytes ?? DEFAULT_TOOL_OUTPUT_LIMIT;
+  const truncation = options.truncation ?? "head";
   const started = Date.now();
   const command = options.displayCommand ?? [options.program, ...args].join(" ");
 
@@ -169,8 +174,8 @@ export async function runProgramCommand(options: {
     child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
     child.on("error", (error) => finish(failure(error.message)));
     child.on("close", (code) => {
-      const stdout = truncateText(Buffer.concat(stdoutChunks).toString("utf8"), outputLimitBytes);
-      const stderr = truncateText(Buffer.concat(stderrChunks).toString("utf8"), outputLimitBytes);
+      const stdout = truncateText(Buffer.concat(stdoutChunks).toString("utf8"), outputLimitBytes, truncation);
+      const stderr = truncateText(Buffer.concat(stderrChunks).toString("utf8"), outputLimitBytes, truncation);
       finish({
         ok: true,
         data: {

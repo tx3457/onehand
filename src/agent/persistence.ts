@@ -5,7 +5,7 @@ import path from "node:path";
 import { PlanSnapshot, RunStatus, RunUsage, StopReason } from "../types.js";
 import type { ToolExecutionRecord } from "../tools/registry.js";
 
-export const RUN_STATE_VERSION = 2;
+export const RUN_STATE_VERSION = 3;
 
 export type PersistedRunState = {
   schemaVersion: number;
@@ -24,9 +24,18 @@ export type PersistedRunState = {
   finalMessage: string;
   status: RunStatus;
   stopReason?: StopReason;
+  textOnlyNudges?: number;
   startedAt: string;
   updatedAt: string;
 };
+
+const SENSITIVE_KEY_PARTS = [
+  "apikey", "token", "secret", "password", "passwd", "authorization", "privatekey", "credential", "cookie", "reasoningcontent"
+];
+const USAGE_FIELDS = [
+  "modelRounds", "toolCalls", "inputTokens", "outputTokens", "cacheHitInputTokens", "cacheMissInputTokens", "totalTokens",
+  "wallTimeMs"
+];
 
 export class RunStore {
   readonly runId: string;
@@ -69,6 +78,10 @@ export class RunStore {
     if (state.schemaVersion !== RUN_STATE_VERSION) {
       throw new Error(`Unsupported state schema version: ${state.schemaVersion}`);
     }
+    const usage = (state.usage ?? {}) as Record<string, unknown>;
+    for (const field of new Set([...USAGE_FIELDS, ...Object.keys(usage)])) {
+      if (!Number.isFinite(usage[field])) throw new Error(`Corrupt run state: usage.${field} is not a number`);
+    }
     const store = new RunStore({ runId: state.runId, runDir: path.dirname(statePath) });
     return { store, state };
   }
@@ -85,7 +98,7 @@ export function summarizeToolArguments(args: string | Record<string, unknown>): 
   for (const [key, item] of Object.entries(value)) {
     if (/content|oldText|newText/i.test(key)) {
       summary[key] = { redacted: true, bytes: typeof item === "string" ? Buffer.byteLength(item) : 0 };
-    } else if (/api.?key|token|secret|password|authorization/i.test(key)) {
+    } else if (isSensitiveKey(key) && !isRedactionExempt(item)) {
       summary[key] = "[REDACTED]";
     } else if (Array.isArray(item)) {
       summary[key] = item.slice(0, 16).map((entry) => redactString(String(entry)));
@@ -102,20 +115,28 @@ export function redactDeep<T>(value: T): T {
   if (value && typeof value === "object") {
     const output: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      output[key] = /api.?key|token|secret|password|authorization|reasoning_content/i.test(key)
-        ? "[REDACTED]"
-        : redactDeep(item);
+      output[key] = isSensitiveKey(key) && !isRedactionExempt(item) ? "[REDACTED]" : redactDeep(item);
     }
     return output as T;
   }
   return value;
 }
 
+function isSensitiveKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return SENSITIVE_KEY_PARTS.some((part) => normalized.includes(part));
+}
+
+// Counters such as inputTokens or maxOutputTokens cannot carry a secret, so they stay numeric.
+function isRedactionExempt(value: unknown): boolean {
+  return Number.isFinite(value) || typeof value === "boolean" || value === null || value === undefined;
+}
+
 function redactString(value: string): string {
   return value
     .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+/gi, "Bearer [REDACTED]")
     .replace(/\b(?:sk|ds|key)-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]")
-    .replace(/((?:api[_-]?key|token|password|secret)\s*[=:]\s*)[^\s"']+/gi, "$1[REDACTED]");
+    .replace(/(["']?(?:api[_-]?key|token|password|secret)["']?\s*[=:]\s*["']?)[^\s"',}]+/gi, "$1[REDACTED]");
 }
 
 function createRunId(): string {

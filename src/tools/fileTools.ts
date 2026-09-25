@@ -1,9 +1,11 @@
 import {
+  chmod,
   mkdir,
   lstat,
   readFile,
   readdir,
   rename,
+  rm,
   stat,
   writeFile
 } from "node:fs/promises";
@@ -78,13 +80,14 @@ export async function listFiles(
 
 export async function searchCode(
   repoRoot: string,
-  args: { query: string; path?: string; maxResults?: number }
+  args: { query: string; path?: string; maxResults?: number; regex?: boolean }
 ): Promise<ToolResult<{ matches: SearchMatch[] }>> {
   try {
     if (!args.query) {
       return { ok: false, error: "query is required", recoverable: true };
     }
 
+    const regex = args.regex ?? false;
     const maxResults = clampPositiveInt(args.maxResults, 100);
     const start = await resolveSafeRepoPath(repoRoot, args.path ?? ".");
     const rgAvailable = await hasExecutable("rg", repoRoot);
@@ -92,7 +95,7 @@ export async function searchCode(
     if (rgAvailable) {
       const rgResult = await runProgramCommand({
         program: "rg",
-        args: buildRgArgs(args.query, start, maxResults),
+        args: buildRgArgs(args.query, start, maxResults, regex),
         cwd: repoRoot,
         timeoutSec: 30,
         allowDestructive: false,
@@ -113,6 +116,9 @@ export async function searchCode(
       }
     }
 
+    if (regex) {
+      return { ok: false, error: "Regex search requires ripgrep (rg); retry with a literal query", recoverable: true };
+    }
     const matches = await fallbackSearch(repoRoot, start, args.query, maxResults);
     return { ok: true, data: { matches }, truncated: matches.length >= maxResults };
   } catch (error) {
@@ -233,13 +239,14 @@ async function hasExecutable(command: string, cwd: string): Promise<boolean> {
   return result.ok && result.data.exitCode === 0;
 }
 
-function buildRgArgs(query: string, searchPath: string, maxResults: number): string[] {
+function buildRgArgs(query: string, searchPath: string, maxResults: number, regex: boolean): string[] {
   return [
     "--line-number",
     "--column",
     "--color",
     "never",
     "--hidden",
+    ...(regex ? [] : ["--fixed-strings"]),
     "-g",
     "!.git",
     "-g",
@@ -293,7 +300,7 @@ function parseRgOutput(repoRoot: string, output: string): SearchMatch[] {
     .filter((match): match is SearchMatch => match !== null);
 }
 
-async function fallbackSearch(
+export async function fallbackSearch(
   repoRoot: string,
   start: string,
   query: string,
@@ -331,7 +338,8 @@ async function fallbackSearch(
         matches.push({
           path: toRepoRelative(repoRoot, current),
           line: index + 1,
-          column: column + 1,
+          // 1-based UTF-8 byte offset, matching rg --column.
+          column: Buffer.byteLength(text.slice(0, column), "utf8") + 1,
           text
         });
       }
@@ -369,6 +377,24 @@ function toolError(error: unknown): ToolResult<never> {
 
 async function atomicWrite(absolutePath: string, content: string): Promise<void> {
   const temp = path.join(path.dirname(absolutePath), `.${path.basename(absolutePath)}.${randomUUID()}.tmp`);
-  await writeFile(temp, content, { encoding: "utf8", mode: 0o600 });
-  await rename(temp, absolutePath);
+  const existingMode = await existingFileMode(absolutePath);
+  try {
+    // A new file gets 0o666 minus the process umask, like any other file the user creates.
+    await writeFile(temp, content, { encoding: "utf8", mode: existingMode === undefined ? 0o666 : 0o600 });
+    if (existingMode !== undefined) await chmod(temp, existingMode);
+    await rename(temp, absolutePath);
+  } catch (error) {
+    await rm(temp, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+// Permission bits only: setuid, setgid, and sticky bits are not carried over to the rewritten file.
+async function existingFileMode(absolutePath: string): Promise<number | undefined> {
+  try {
+    const info = await stat(absolutePath);
+    return info.isFile() ? info.mode & 0o777 : undefined;
+  } catch {
+    return undefined;
+  }
 }

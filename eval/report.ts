@@ -28,13 +28,15 @@ export function summarize(manifest: EvaluationManifest, results: EvaluationRunRe
   const tracesWithFailure = results.filter((item) => item.traceEvents.some(isFailedToolEvent));
   const recovered = tracesWithFailure.filter((item) => item.resolved);
   const unsafeBlocks = results.reduce((sum, item) => sum + item.traceEvents.filter(isUnsafeBlockEvent).length, 0);
+  const invalidResultRuns = results.filter((item) => item.failureClass === "invalid_result").length;
 
   return {
     schemaVersion: 1,
     evaluationId: manifest.evaluationId,
     generatedAt: new Date().toISOString(),
-    complete: results.length === manifest.plannedRuns && !capReached,
+    complete: results.length === manifest.plannedRuns && !capReached && invalidResultRuns === 0,
     capReached,
+    invalidResultRuns,
     plannedRuns: manifest.plannedRuns,
     observedRuns: results.length,
     taskCount: manifest.taskCount,
@@ -68,6 +70,9 @@ export function summarize(manifest: EvaluationManifest, results: EvaluationRunRe
       cacheMissInput: sum(results.map((item) => item.cacheMissInputTokens))
     },
     estimatedCostUsd: sum(results.map((item) => item.estimatedCostUsd)),
+    // What was actually counted against the cost cap; differs from estimatedCostUsd only for
+    // thrown or invalid-result rows, which are charged their worst-case or audited amount.
+    capChargedUsd: sum(results.map((item) => item.capChargeUsd ?? item.estimatedCostUsd)),
     byCategory: Object.fromEntries(Object.entries(categoryGroups).map(([category, items]) => {
       const values = items.map((item) => item.resolved ? 1 : 0);
       return [category, {
@@ -97,6 +102,7 @@ function markdown(summary: EvaluationSummary): string {
 - 实际运行：${summary.observedRuns}
 - 完整：${summary.complete ? "是" : "否"}
 - 成本上限触发：${summary.capReached ? "是" : "否"}
+- 无效结果运行数：${summary.invalidResultRuns}（原始行保存在 \`invalid-results.jsonl\`，按原始成本或最坏情况成本计入上限）
 
 ## 主要结果
 
@@ -127,6 +133,7 @@ ${categoryRows}
 - 工具调用：平均 ${fmt(summary.toolCalls.mean)}，P95 ${fmt(summary.toolCalls.p95)}
 - Token：input ${summary.tokens.input}，output ${summary.tokens.output}，cache-hit input ${summary.tokens.cacheHitInput}
 - 按评测 manifest 固定价格估算成本：$${summary.estimatedCostUsd.toFixed(4)}
+- 计入成本上限的合计充值（含被拒绝/抛出运行的最坏情况充值）：$${summary.capChargedUsd.toFixed(4)}
 
 ## 失败分类
 

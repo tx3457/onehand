@@ -8,9 +8,11 @@ export type ResponsesClient = {
 };
 
 type ResponseLike = {
+  model?: string;
   output?: ResponseOutputItem[];
   output_text?: string;
   status?: string;
+  incomplete_details?: { reason?: string } | null;
   usage?: {
     input_tokens?: number;
     output_tokens?: number;
@@ -78,12 +80,16 @@ export class OpenAIResponsesProvider implements ModelProvider {
     const cached = response.usage?.input_tokens_details?.cached_tokens ?? 0;
     const input = response.usage?.input_tokens ?? 0;
     const outputTokens = response.usage?.output_tokens ?? 0;
+    const incompleteReason = response.incomplete_details?.reason;
 
     return {
-      historyItems: output,
+      historyItems: replayableOutput(output),
       toolCalls,
       message: extractMessage(response),
-      finishReason: response.status,
+      finishReason: response.status !== "incomplete"
+        ? response.status
+        : incompleteReason === "max_output_tokens" ? "length" : `incomplete:${incompleteReason ?? "unknown"}`,
+      model: response.model,
       usage: {
         inputTokens: input,
         outputTokens,
@@ -101,6 +107,13 @@ export class OpenAIResponsesProvider implements ModelProvider {
 
 function isResponsesClient(value: OpenAIResponsesProviderOptions | ResponsesClient | undefined): value is ResponsesClient {
   return typeof value === "object" && value !== null && "responses" in value;
+}
+
+// A replayed reasoning item must be followed by its output item, or the API rejects the request.
+function replayableOutput(output: ResponseOutputItem[]): ResponseOutputItem[] {
+  let end = output.length;
+  while (end > 0 && output[end - 1]!.type === "reasoning") end -= 1;
+  return output.slice(0, end);
 }
 
 function extractMessage(response: ResponseLike): string {

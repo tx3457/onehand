@@ -95,7 +95,8 @@ The default tool policy:
 - does not invoke a shell for model-selected commands;
 - rejects shell operators, inline interpreter code, package installation, network clients, and mutating/networked Git commands;
 - passes a small environment-variable allowlist to child processes;
-- truncates large tool output and redacts common credential patterns in state and traces.
+- truncates large tool output, keeping both the head and the tail of command output so that trailing test failures stay visible;
+- redacts common credential patterns in state and traces.
 
 These controls limit the model's direct tools. They do **not** isolate code executed by an allowed test/build program. Use a container or VM when stronger isolation is required.
 
@@ -108,7 +109,25 @@ npm run build
 npm run eval:deterministic
 ```
 
-The current local suite contains 55 deterministic tests: the 43-test pre-migration baseline, 2 OpenAI provider configuration-contract regressions, and a separate 10-scenario Agent suite. The 10 scenarios exercise multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry against temporary Git fixtures. All providers in these tests are fake or scripted; this is execution-loop evidence, not a real-model success rate.
+The local suite has 108 deterministic tests in 15 files:
+
+- A 10-scenario Agent suite, run against temporary Git fixtures. It covers multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry.
+- Provider-contract tests. One checks that DeepSeek `reasoning_content` is sent back on later tool-carrying requests; another checks that no `temperature` is sent in thinking mode; another checks that a reasoning-only, tool-call-free turn replays with string content instead of `content: null`.
+- Persistence tests: a save/load round trip, redaction rules that keep numeric usage counters, and redaction of JSON-quoted credential forms (e.g. `"apiKey":"sk-…"`).
+- Runner tests for:
+  - text-only turns;
+  - output-limit and runtime-error stop reasons;
+  - lazy worktree fingerprints;
+  - hashed `failureSignatures` keys, so a failed tool call's raw arguments never reach `state.json`.
+- Tool tests for:
+  - mode-preserving atomic writes;
+  - head-and-tail output truncation;
+  - literal and regex search, including the ripgrep-unavailable fallback forced independently of whether `rg` is actually installed.
+- Fingerprint tests for the pure `fingerprintOf` hash and its sensitivity to any single input change.
+- Evaluation-harness tests for: the cost cap surviving a resume for a thrown run's worst-case charge; a mis-keyed row being substituted instead of crashing a later "Duplicate" check; the audited copy in `invalid-results.jsonl` staying redacted; and the source fingerprint changing when any tracked file changes.
+- An offline integration test that drives the real evaluation `runOne` path with a scripted DeepSeek client, including that the trace's frozen budgets match the manifest exactly.
+
+All providers in these tests are fake or scripted. This is evidence that the execution loop works, not a real-model success rate.
 
 ## Evaluation protocol
 

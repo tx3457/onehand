@@ -29,6 +29,7 @@ program
   .option("--max-tool-calls <n>", "maximum total tool calls", parsePositiveInt, 40)
   .option("--max-input-tokens <n>", "maximum cumulative input tokens", parsePositiveInt, 300000)
   .option("--max-output-tokens <n>", "maximum cumulative output tokens", parsePositiveInt, 40000)
+  .option("--max-turn-output-tokens <n>", "maximum output tokens for one model turn", parsePositiveInt, 8192)
   .option("--max-wall-sec <n>", "maximum wall time in seconds", parsePositiveInt, 900)
   .option("--timeout-sec <n>", "command timeout in seconds", parsePositiveInt, 120)
   .option("--model-timeout-sec <n>", "timeout for one model request", parsePositiveInt, 180)
@@ -56,6 +57,7 @@ program
       maxToolCalls: options.maxToolCalls,
       maxInputTokens: options.maxInputTokens,
       maxOutputTokens: options.maxOutputTokens,
+      maxTurnOutputTokens: options.maxTurnOutputTokens,
       maxWallTimeMs: options.maxWallSec * 1000,
       timeoutSec: options.timeoutSec,
       modelTimeoutMs: options.modelTimeoutSec * 1000,

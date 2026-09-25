@@ -106,7 +106,8 @@ export function createToolRegistry(
             args: (args.args as string[] | undefined) ?? [],
             cwd,
             timeoutSec: (args.timeoutSec as number | undefined) ?? context.timeoutSec,
-            allowDestructive: context.allowDestructive
+            allowDestructive: context.allowDestructive,
+            truncation: "head_tail"
           });
           if (execution.ok) {
             records.push({ type: "command", command: execution.data.command, exitCode: execution.data.exitCode });
@@ -132,7 +133,8 @@ export function createToolRegistry(
             command,
             cwd: context.repoRoot,
             timeoutSec: (args.timeoutSec as number | undefined) ?? context.timeoutSec,
-            allowDestructive: context.allowDestructive
+            allowDestructive: context.allowDestructive,
+            truncation: "head_tail"
           });
           if (execution.ok) {
             const passed = execution.data.exitCode === 0 && !execution.data.timedOut;
@@ -165,7 +167,7 @@ export function serializeToolResult(result: ToolResult<unknown>): string {
 const MUTATING_OR_ACTION_TOOLS = new Set(["write_file", "replace_text", "run_command", "run_tests"]);
 const emptyObject: JsonSchema = { type: "object", properties: {}, additionalProperties: false };
 
-const TOOL_DEFINITIONS: ToolDefinition[] = [
+export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function", name: "set_plan",
     description: "Create or replace the task plan before modifying the repository.",
@@ -201,8 +203,8 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: "function", name: "search_code",
-    description: "Search repository text with rg when available, otherwise use Node traversal.",
-    parameters: { type: "object", properties: { query: { type: "string" }, path: { type: "string" }, maxResults: { type: "integer", minimum: 1, maximum: 500 } }, required: ["query"], additionalProperties: false }
+    description: "Search repository text. The query is literal by default. Set regex=true to use a ripgrep (Rust) regular expression, e.g. (?i) for case-insensitive matching; regex search requires rg.",
+    parameters: { type: "object", properties: { query: { type: "string" }, path: { type: "string" }, maxResults: { type: "integer", minimum: 1, maximum: 500 }, regex: { type: "boolean" } }, required: ["query"], additionalProperties: false }
   },
   {
     type: "function", name: "read_file",

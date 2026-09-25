@@ -33,6 +33,8 @@ export type RunAgentOptions = {
   maxToolCalls?: number;
   maxInputTokens?: number;
   maxOutputTokens?: number;
+  maxTurnOutputTokens?: number;
+  maxTextOnlyNudges?: number;
   maxWallTimeMs?: number;
   timeoutSec?: number;
   modelTimeoutMs?: number;
@@ -55,8 +57,36 @@ const DEFAULT_USAGE: RunUsage = {
   cacheHitInputTokens: 0,
   cacheMissInputTokens: 0,
   totalTokens: 0,
+  reasoningTokens: 0,
   wallTimeMs: 0
 };
+export const TEXT_ONLY_NUDGE = "A plain assistant message does not complete the task. Call the next tool you need, or call finish_task once every plan step is complete and the latest change is verified.";
+export const OUTPUT_LIMIT_NUDGE = "Your previous response hit the output limit before any tool call. Continue by calling the next tool you need; keep reasoning brief.";
+const TOOL_FAILURE_CATEGORIES: Array<[string, RegExp]> = [
+  ["timeout", /timed out/i],
+  ["schema", /not valid JSON|must be (one of|an object|an array|a string|a boolean|a number|an integer|>=|<=)|is required|\.\S+ is not allowed|must contain at (least|most)/],
+  ["plan_gate", /Call set_plan before|Repeated failure requires|active plan is blocked|Set a plan before|Replan after|plan steps must be completed|passing verification after|No plan was set/],
+  ["policy", /disabled|allowlist|Protected|protected|outside repository|escapes repository|resolves outside|Shell operator|Executable paths|Shell interpreters|Dependency or environment mutation|Git mutation|NUL bytes|dedicated repository tool/],
+  ["not_found", /ENOENT|not found|No such file/],
+  ["unknown_tool", /Unknown tool/]
+];
+
+export class ModelCallError extends Error {
+  readonly status?: number;
+
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "ModelCallError";
+    this.status = statusCode(cause);
+  }
+}
+
+export class RuntimeFailure extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RuntimeFailure";
+  }
+}
 
 export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   const repoRoot = await normalizeRepoRoot(options.repoPath);
@@ -75,6 +105,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     maxToolCalls: options.maxToolCalls ?? 40,
     maxInputTokens: options.maxInputTokens ?? 300_000,
     maxOutputTokens: options.maxOutputTokens ?? 40_000,
+    maxTurnOutputTokens: options.maxTurnOutputTokens ?? 8_192,
+    maxTextOnlyNudges: options.maxTextOnlyNudges ?? 2,
     maxWallTimeMs: options.maxWallTimeMs ?? 15 * 60_000,
     timeoutSec: options.timeoutSec ?? 120,
     modelTimeoutMs: options.modelTimeoutMs ?? 180_000,
@@ -82,7 +114,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     retryDelayMs: options.retryDelayMs ?? 1_000
   };
   const gitHead = await readGitHead(repoRoot, limits.timeoutSec);
-  const worktreeFingerprint = await readWorktreeFingerprint(repoRoot, limits.timeoutSec, gitHead);
+  const worktreeFingerprint = options.resume
+    ? await readWorktreeFingerprint(repoRoot, limits.timeoutSec, gitHead)
+    : null;
 
   let store: RunStore | undefined;
   let restored: PersistedRunState | undefined;
@@ -121,6 +155,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   const usage: RunUsage = { ...(restored?.usage ?? DEFAULT_USAGE) };
   const failureSignatures = new Map(Object.entries(restored?.failureSignatures ?? {}));
   let finalMessage = restored?.finalMessage ?? "";
+  let textOnlyNudges = restored?.textOnlyNudges ?? 0;
   let status: RunStatus = "failed";
   let stopReason: StopReason = "step_budget";
   const startedAt = restored?.startedAt ?? new Date().toISOString();
@@ -134,6 +169,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
       model,
       limits
     });
+    const redactedReasoning = restored?.history
+      .filter((item) => (item as { reasoning_content?: unknown })?.reasoning_content === "[REDACTED]").length ?? 0;
+    if (redactedReasoning) await store.trace("reasoning_redacted_on_resume", { count: redactedReasoning });
   }
 
   let shouldStop = false;
@@ -147,6 +185,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         break;
       }
 
+      const turnStarted = Date.now();
       const turn = await completeWithRetry(provider, {
         model,
         instructions: SYSTEM_PROMPT,
@@ -155,12 +194,13 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         reasoningEffort: options.reasoningEffort ?? "high",
         thinking: options.thinking ?? "enabled",
         temperature: options.temperature ?? 0.2,
-        maxOutputTokens: Math.max(1, Math.min(8_192, limits.maxOutputTokens - usage.outputTokens)),
+        maxOutputTokens: Math.max(1, Math.min(limits.maxTurnOutputTokens, limits.maxOutputTokens - usage.outputTokens)),
         signal: options.signal
       }, {
         ...limits,
         modelTimeoutMs: Math.max(1, Math.min(limits.modelTimeoutMs, limits.maxWallTimeMs - usage.wallTimeMs))
       }, store);
+      const latencyMs = Date.now() - turnStarted;
       usage.modelRounds += 1;
       addUsage(usage, turn.usage);
       history.push(...turn.historyItems);
@@ -169,6 +209,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         round: usage.modelRounds,
         toolCallNames: turn.toolCalls.map((call) => call.name),
         finishReason: turn.finishReason,
+        latencyMs,
+        responseModel: turn.model,
         usage: turn.usage
       });
 
@@ -181,8 +223,16 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
       }
       if (turn.toolCalls.length === 0) {
         if (enforcePlanning) {
+          const outputLimited = turn.finishReason === "length";
+          const nudge = textOnlyNudges < limits.maxTextOnlyNudges;
+          await store?.trace("text_only_turn", { round: usage.modelRounds, finishReason: turn.finishReason, nudge });
+          if (nudge) {
+            textOnlyNudges += 1;
+            history.push(...provider.initialHistory(outputLimited ? OUTPUT_LIMIT_NUDGE : TEXT_ONLY_NUDGE));
+            continue;
+          }
           status = "failed";
-          stopReason = "model_stopped_without_finish";
+          stopReason = outputLimited ? "output_limit" : "model_stopped_without_finish";
         } else {
           const lastTest = registry.records.filter((record) => record.type === "test").at(-1);
           status = lastTest && !lastTest.passed ? "failed" : "success";
@@ -207,9 +257,14 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           break;
         }
         usage.toolCalls += 1;
+        const toolStarted = Date.now();
         const result = await registry.execute(call.name, call.arguments);
-        history.push(provider.toolResultItem(call, serializeToolResult(result)));
-        const signature = stableSignature(call);
+        const durationMs = Date.now() - toolStarted;
+        const observation = serializeToolResult(result);
+        history.push(provider.toolResultItem(call, observation));
+        // Hashed so a persisted failureSignatures key never carries raw tool arguments (which can
+        // include secrets); only equality is needed for the repeated-failure check below.
+        const signature = createHash("sha256").update(stableSignature(call)).digest("hex");
         if (isFailedObservation(call.name, result)) {
           const failures = (failureSignatures.get(signature) ?? 0) + 1;
           failureSignatures.set(signature, failures);
@@ -224,7 +279,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             ? (result.data as { passed?: boolean }).passed
             : undefined,
           error: result.ok ? undefined : result.error,
+          errorCategory: categorizeToolFailure(call.name, result),
           truncated: result.ok ? result.truncated ?? false : false,
+          durationMs,
+          observationBytes: Buffer.byteLength(observation),
           planRevision: plan.snapshot().revision
         });
         if (registry.finishAccepted) {
@@ -251,7 +309,6 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           task: options.task,
           repo: repoRoot,
           gitHead,
-          worktreeFingerprint: await readWorktreeFingerprint(repoRoot, limits.timeoutSec, gitHead),
           provider: provider.name,
           model,
           history: checkpointHistory,
@@ -262,8 +319,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           finalMessage,
           status: shouldStop ? status : "stopped",
           stopReason: shouldStop ? stopReason : undefined,
+          textOnlyNudges,
           startedAt
-        });
+        }, limits.timeoutSec);
         if (shouldStop) {
           appendSkippedToolResults(
             provider,
@@ -281,16 +339,12 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     }
   } catch (error) {
     const elapsedWallTime = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted);
-    status = options.signal?.aborted
-      ? "cancelled"
-      : elapsedWallTime >= limits.maxWallTimeMs
-        ? "budget_exhausted"
-        : "failed";
     stopReason = options.signal?.aborted
       ? "cancelled"
       : elapsedWallTime >= limits.maxWallTimeMs
         ? "wall_time_budget"
-        : "model_error";
+        : error instanceof ModelCallError ? "model_error" : "runtime_error";
+    status = statusForReason(stopReason);
     finalMessage = error instanceof Error ? error.message : String(error);
     await store?.trace("run_error", {
       name: error instanceof Error ? error.name : "Error",
@@ -315,7 +369,6 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     task: options.task,
     repo: repoRoot,
     gitHead,
-    worktreeFingerprint: await readWorktreeFingerprint(repoRoot, limits.timeoutSec, gitHead),
     provider: provider.name,
     model,
     history,
@@ -326,8 +379,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     finalMessage,
     status,
     stopReason,
+    textOnlyNudges,
     startedAt
-  });
+  }, limits.timeoutSec);
   await store?.trace("run_finished", { status, stopReason, usage, plan: compactPlan(plan.snapshot()) });
 
   return {
@@ -374,16 +428,16 @@ async function completeWithRetry(
         name: error instanceof Error ? error.name : "Error",
         status: statusCode(error)
       });
-      if (!retryable || attempt >= limits.maxApiAttempts) throw error;
+      if (!retryable || attempt >= limits.maxApiAttempts) throw new ModelCallError(error);
       const retryDelay = Math.min(limits.retryDelayMs * 2 ** (attempt - 1), Math.max(0, deadline - Date.now()));
-      if (retryDelay <= 0) throw error;
+      if (retryDelay <= 0) throw new ModelCallError(error);
       await delay(retryDelay);
     } finally {
       clearTimeout(timer);
       request.signal?.removeEventListener("abort", abortFromCaller);
     }
   }
-  throw lastError;
+  throw new ModelCallError(lastError);
 }
 
 function budgetReason(
@@ -410,6 +464,16 @@ function addUsage(target: RunUsage, value: RunUsage | any): void {
   target.cacheHitInputTokens += value.cacheHitInputTokens ?? 0;
   target.cacheMissInputTokens += value.cacheMissInputTokens ?? 0;
   target.totalTokens += value.totalTokens ?? 0;
+  target.reasoningTokens = (target.reasoningTokens ?? 0) + (value.reasoningTokens ?? 0);
+}
+
+export function categorizeToolFailure(name: string, result: ToolResult<unknown>): string | undefined {
+  if (result.ok) {
+    const data = result.data as { passed?: boolean; timedOut?: boolean } | undefined;
+    if (data?.timedOut === true) return "timeout";
+    return name === "run_tests" && data?.passed === false ? "test_failed" : undefined;
+  }
+  return TOOL_FAILURE_CATEGORIES.find(([, pattern]) => pattern.test(result.error))?.[0] ?? "other";
 }
 
 function isFailedObservation(name: string, result: ToolResult<unknown>): boolean {
@@ -529,7 +593,7 @@ async function readWorktreeFingerprint(
   if (!tracked.ok || tracked.data.exitCode !== 0 || tracked.truncated ||
       !untracked.ok || untracked.data.exitCode !== 0 || untracked.truncated ||
       !ignored.ok || ignored.data.exitCode !== 0 || ignored.truncated) {
-    throw new Error("Unable to compute a complete Git worktree fingerprint");
+    throw new RuntimeFailure("Unable to compute a complete Git worktree fingerprint");
   }
   const files = new Set([
     ...splitNull(tracked.data.stdout),
@@ -548,8 +612,8 @@ async function readWorktreeFingerprint(
         hash.update(await readFile(absolute));
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      hash.update("[deleted]");
+      const code = (error as NodeJS.ErrnoException).code;
+      hash.update(code === "ENOENT" ? "[deleted]" : `[unreadable:${code ?? "unknown"}]`);
     }
     hash.update("\0");
   }
@@ -562,15 +626,17 @@ function splitNull(value: string): string[] {
 
 async function saveCheckpoint(
   store: RunStore | undefined,
-  value: Omit<PersistedRunState, "schemaVersion" | "runId" | "updatedAt" | "failureSignatures"> & {
+  value: Omit<PersistedRunState, "schemaVersion" | "runId" | "updatedAt" | "failureSignatures" | "worktreeFingerprint"> & {
     failureSignatures: Map<string, number>;
-  }
+  },
+  timeoutSec: number
 ): Promise<void> {
   if (!store) return;
   await store.save({
     ...value,
     schemaVersion: RUN_STATE_VERSION,
     runId: store.runId,
+    worktreeFingerprint: await readWorktreeFingerprint(value.repo, timeoutSec, value.gitHead),
     failureSignatures: Object.fromEntries(value.failureSignatures),
     updatedAt: new Date().toISOString()
   });

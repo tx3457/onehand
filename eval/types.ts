@@ -12,7 +12,7 @@ export type EvaluationRunResult = {
   model: string;
   thinking: "enabled";
   reasoningEffort: "high";
-  temperature: number;
+  temperature: number | null;
   startedAt: string;
   durationMs: number;
   agentStatus: string;
@@ -38,6 +38,10 @@ export type EvaluationRunResult = {
   cacheHitInputTokens: number;
   cacheMissInputTokens: number;
   estimatedCostUsd: number;
+  // What the cost cap actually charged this run: estimatedCostUsd for a normal row, the audited
+  // amount for an invalid-result substitution, or the worst-case run cost for a thrown run.
+  // Optional so older rows without it fall back to estimatedCostUsd.
+  capChargeUsd?: number;
   finalMessage: string;
   failureClass?: string;
   traceEvents: Array<Record<string, unknown>>;
@@ -55,7 +59,13 @@ export type EvaluationManifest = {
   model: string;
   thinking: "enabled";
   reasoningEffort: "high";
-  temperature: number;
+  temperature: number | null;
+  agentFingerprint: string;
+  // sha256 over every .ts file under src/, so any code change makes a resumed evaluation incompatible.
+  sourceFingerprint: string;
+  // Provenance only, not compared for resume compatibility.
+  gitHead: string | null;
+  gitDirty: boolean | null;
   limits: {
     maxSteps: number;
     maxToolCalls: number;
@@ -63,14 +73,24 @@ export type EvaluationManifest = {
     maxOutputTokens: number;
     maxWallTimeMs: number;
     commandTimeoutSec: number;
+    maxTurnOutputTokens: number;
+    maxTextOnlyNudges: number;
+    modelTimeoutMs: number;
+    maxApiAttempts: number;
+    retryDelayMs: number;
     costCapUsd: number;
   };
-  priceSnapshot: {
-    source: string;
-    checkedAt: string;
-    inputCacheHitPerMillionUsd: number;
-    inputCacheMissPerMillionUsd: number;
-    outputPerMillionUsd: number;
-  };
+  priceSnapshot: PriceSnapshot;
   tasks: Array<{ id: string; category: EvaluationCategory; hash: string }>;
+};
+
+export type PriceSnapshot = {
+  source: string;
+  checkedAt: string;
+  model: string;
+  basis: "peak";
+  peakHoursUtc: string;
+  inputCacheHitPerMillionUsd: number;
+  inputCacheMissPerMillionUsd: number;
+  outputPerMillionUsd: number;
 };

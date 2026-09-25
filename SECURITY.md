@@ -17,7 +17,12 @@ Use OneHand only on repositories you trust. For third-party or adversarial code,
 - Model-selected commands use direct process spawning rather than a shell.
 - Network clients, package/environment mutation, inline interpreter snippets, and mutating/network Git operations are refused.
 - Child processes receive an environment-variable allowlist rather than the complete parent environment.
-- Run state and traces are owner-only where the platform supports permissions, use atomic writes, omit model reasoning content, and redact common credential patterns.
+- Run state and traces:
+  - are owner-only where the platform supports permissions;
+  - use atomic writes;
+  - redact model reasoning content and common credential patterns on disk.
+- DeepSeek reasoning is kept in memory for the duration of a run. Thinking mode requires the previous `reasoning_content` to be sent back with every later tool-carrying request, so it is returned only to the configured provider.
+- A resumed run sends a `[REDACTED]` placeholder instead of the original reasoning.
 
 Redaction is defense in depth, not a guarantee that arbitrary secret formats will be detected. Do not place secrets in model-visible source files or share raw run state without inspection.
 

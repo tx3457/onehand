@@ -293,6 +293,7 @@ async function falseSuccessPlainStop(): Promise<Checks> {
     return {
       natural_language_claim_not_success: report.status === "failed",
       correct_stop_reason: report.stopReason === "model_stopped_without_finish",
+      nudged_twice_before_failing: report.usage?.modelRounds === 3,
       no_tool_evidence: (report.usage?.toolCalls ?? -1) === 0,
       observed_status: report.status,
       observed_stop_reason: report.stopReason ?? "none"

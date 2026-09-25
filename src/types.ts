@@ -19,7 +19,9 @@ export type StopReason =
   | "token_budget"
   | "wall_time_budget"
   | "blocked"
-  | "cancelled";
+  | "cancelled"
+  | "output_limit"
+  | "runtime_error";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -27,6 +29,7 @@ export type TokenUsage = {
   cacheHitInputTokens: number;
   cacheMissInputTokens: number;
   totalTokens: number;
+  reasoningTokens?: number;
 };
 
 export type RunUsage = TokenUsage & {

@@ -12,6 +12,7 @@ export type ProviderTurn = {
   message: string;
   finishReason?: string;
   usage: TokenUsage;
+  model?: string;
 };
 
 export type ProviderRequest = {

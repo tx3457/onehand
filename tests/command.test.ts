@@ -1,6 +1,11 @@
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { makeTempDir, cleanupTempDir } from "./helpers.js";
 import { isDestructiveCommand, runShellCommand } from "../src/tools/command.js";
+import { createToolRegistry } from "../src/tools/registry.js";
+
+const LARGE_OUTPUT = "node -e \"process.stdout.write('HEAD' + 'x'.repeat(1000) + 'TAIL')\"";
 
 describe("command runner", () => {
   it("captures stdout, stderr, and exit code", async () => {
@@ -56,6 +61,47 @@ describe("command runner", () => {
       }
     } finally {
       await cleanupTempDir(cwd);
+    }
+  });
+
+  it("keeps only the head of large output by default", async () => {
+    const cwd = await makeTempDir();
+    try {
+      const result = await runShellCommand({ command: LARGE_OUTPUT, cwd, timeoutSec: 10, outputLimitBytes: 100 });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.stdout).toMatch(/^HEADx+\n\n\[onehand: output truncated, \d+ bytes omitted\]\n\n$/);
+      }
+    } finally {
+      await cleanupTempDir(cwd);
+    }
+  });
+
+  it("keeps the head and the tail of large output with head_tail truncation", async () => {
+    const cwd = await makeTempDir();
+    try {
+      const result = await runShellCommand({
+        command: LARGE_OUTPUT, cwd, timeoutSec: 10, outputLimitBytes: 100, truncation: "head_tail"
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.stdout).toMatch(/^HEADx+\n\n\[onehand: output truncated, \d+ bytes omitted\]\n\nx+TAIL$/);
+      }
+    } finally {
+      await cleanupTempDir(cwd);
+    }
+  });
+
+  it("keeps the tail of large model-facing test output", async () => {
+    const repo = await makeTempDir();
+    try {
+      await writeFile(path.join(repo, "test.cjs"), "process.stdout.write('x'.repeat(30000) + '\\nFAILED: last line\\n');process.exit(1);\n");
+      const registry = createToolRegistry({ repoRoot: repo, testCommand: "node test.cjs", timeoutSec: 10, allowDestructive: false });
+      const result = await registry.execute("run_tests", {});
+      expect(result).toMatchObject({ ok: true, truncated: true, data: { passed: false } });
+      if (result.ok) expect((result.data as { stdout: string }).stdout).toContain("FAILED: last line");
+    } finally {
+      await cleanupTempDir(repo);
     }
   });
 

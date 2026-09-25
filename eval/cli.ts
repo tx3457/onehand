@@ -14,7 +14,8 @@ program
   .option("--repetitions <n>", "independent repetitions", positiveInt)
   .option("--concurrency <n>", "parallel runs", positiveInt, 2)
   .option("--cost-cap-usd <n>", "hard estimated cost cap", positiveNumber, 20)
-  .option("--model <id>", "DeepSeek model", "deepseek-v4-pro")
+  .option("--model <id>", "DeepSeek model", "deepseek-flash")
+  .option("--task-ids <ids>", "comma-separated task IDs to run from the selected split", parseTaskIds)
   .action(async (options) => {
     const mode = options.mode as "pilot" | "full";
     const repetitions = options.repetitions ?? (mode === "pilot" ? 1 : 3);
@@ -28,7 +29,8 @@ program
       apiKey: env.apiKey,
       baseURL: env.baseURL,
       model: options.model,
-      costCapUsd: options.costCapUsd
+      costCapUsd: options.costCapUsd,
+      taskIds: options.taskIds
     });
     const summary = await writeEvaluationReport(manifest, results, outputDir, capReached);
     process.stdout.write(`[eval] report=${path.join(outputDir, "report.md")} runs=${summary.observedRuns}/${summary.plannedRuns} resolved=${(summary.runResolvedRate * 100).toFixed(1)}% cost=$${summary.estimatedCostUsd.toFixed(4)}\n`);
@@ -55,4 +57,10 @@ function positiveNumber(value: string): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`Expected positive number, got ${value}`);
   return parsed;
+}
+
+function parseTaskIds(value: string): string[] {
+  const ids = value.split(",").map((id) => id.trim()).filter(Boolean);
+  if (!ids.length) throw new Error(`Expected comma-separated task IDs, got ${value}`);
+  return ids;
 }

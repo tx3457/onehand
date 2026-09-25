@@ -42,7 +42,7 @@ export class DeepSeekChatProvider implements ModelProvider {
         tool_choice: "auto",
         thinking: { type: request.thinking },
         reasoning_effort: request.reasoningEffort,
-        temperature: request.temperature ?? 0.2,
+        ...(request.thinking === "disabled" ? { temperature: request.temperature ?? 0.2 } : {}),
         max_tokens: request.maxOutputTokens,
         stream: false
       },
@@ -55,10 +55,12 @@ export class DeepSeekChatProvider implements ModelProvider {
       name: call.function.name,
       arguments: call.function.arguments
     }));
-    // Deliberately omit reasoning_content from persisted history.
+    // Some OpenAI-compatible validators reject content: null on a message with no tool_calls, so
+    // a text-free, tool-call-free turn (e.g. reasoning-only, length-limited) replays as "".
     const historyMessage = {
       role: "assistant",
-      content: message.content ?? null,
+      content: message.content ?? (message.tool_calls?.length ? null : ""),
+      ...(typeof message.reasoning_content === "string" ? { reasoning_content: message.reasoning_content } : {}),
       ...(message.tool_calls ? { tool_calls: message.tool_calls } : {})
     };
     const usage = response.usage ?? {};
@@ -69,12 +71,14 @@ export class DeepSeekChatProvider implements ModelProvider {
       toolCalls,
       message: message.content ?? "",
       finishReason: choice?.finish_reason,
+      model: response.model,
       usage: {
         inputTokens: usage.prompt_tokens ?? cacheHit + cacheMiss,
         outputTokens: usage.completion_tokens ?? 0,
         cacheHitInputTokens: cacheHit,
         cacheMissInputTokens: cacheMiss,
-        totalTokens: usage.total_tokens ?? (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0)
+        totalTokens: usage.total_tokens ?? (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0),
+        reasoningTokens: usage.completion_tokens_details?.reasoning_tokens ?? 0
       }
     };
   }
