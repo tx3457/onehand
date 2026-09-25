@@ -6,6 +6,8 @@ import { serializeToolResult, TOOL_DEFINITIONS } from "../src/tools/registry.js"
 describe("frozen baseline behavior", () => {
   it("keeps the pre-experiment behavior fingerprint", () => {
     expect(agentBehaviorFingerprint(PROFILES.baseline)).toBe("674793f83c5ac14a6ed46e1fd0e4327b964cbb2101250aa7db05fc7102486f09");
+    expect(agentBehaviorFingerprint(PROFILES.ctx)).toBe("9bc9203921b32815a791ae99358191da81907c87899d30fc1d9352add1d281ec");
+    expect(agentBehaviorFingerprint(PROFILES["ctx-sandbox"])).toBe("e7797b1a43ae1c14f94e6335b3098e02925ed010db410e8b565696c90c833792");
   });
 
   it("keeps tool definitions including object key order", () => {

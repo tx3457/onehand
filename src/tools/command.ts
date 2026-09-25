@@ -30,6 +30,7 @@ const GIT_ALLOWED = new Set([
 const SANDBOX_GIT_ALLOWED = new Set([
   "log", "show", "blame", "grep", "diff", "status", "ls-files", "rev-parse", "cat-file"
 ]);
+const READ_ONLY_INSPECTION_PROGRAMS = new Set(["rg", "grep", "sed", "cat", "head", "tail", "ls", "find", "git"]);
 const SANDBOX_PACKAGE_COMMANDS: Record<string, Set<string>> = {
   npm: new Set(["ci", "exec", "x"]),
   pnpm: new Set(["dlx"]),
@@ -198,6 +199,68 @@ export function commandPolicyError(
     return "Git branch mutation is disabled";
   }
   return null;
+}
+
+export function isReadOnlyInspectionCommand(program: string, args: string[]): boolean {
+  const base = path.basename(program).toLowerCase();
+  if (!READ_ONLY_INSPECTION_PROGRAMS.has(base)) return false;
+  if (commandPolicyError(program, args, false, true)) return false;
+  if (base === "find" && args.some((arg) => [
+    "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"
+  ].includes(arg))) return false;
+  if (base === "sed" && sedMayWriteOrExecute(args)) return false;
+  return !(base === "rg" && args.some((arg) => arg === "--pre" || arg.startsWith("--pre=")));
+}
+
+function sedMayWriteOrExecute(args: string[]): boolean {
+  const scripts: string[] = [];
+  const positional: string[] = [];
+  const safeLongOptions = new Set([
+    "--debug", "--quiet", "--silent", "--regexp-extended", "--posix", "--sandbox", "--unbuffered", "--zero-terminated"
+  ]);
+  let explicitScript = false;
+  let optionsEnded = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (!optionsEnded && arg === "--") {
+      optionsEnded = true;
+      continue;
+    }
+    if (!optionsEnded && arg.startsWith("--")) {
+      if (arg === "--in-place" || arg.startsWith("--in-place=") ||
+          arg === "--file" || arg.startsWith("--file=")) return true;
+      if (arg === "--expression") {
+        const script = args[++index];
+        if (!script) return true;
+        scripts.push(script);
+        explicitScript = true;
+      } else if (arg.startsWith("--expression=")) {
+        scripts.push(arg.slice("--expression=".length));
+        explicitScript = true;
+      } else if (!safeLongOptions.has(arg)) return true;
+      continue;
+    }
+    if (!optionsEnded && arg.startsWith("-") && arg !== "-") {
+      const options = arg.slice(1);
+      for (let optionIndex = 0; optionIndex < options.length; optionIndex += 1) {
+        const option = options[optionIndex]!;
+        if (option === "i" || option === "f") return true;
+        if (option === "e") {
+          const attached = options.slice(optionIndex + 1);
+          const script = attached || args[++index];
+          if (!script) return true;
+          scripts.push(script);
+          explicitScript = true;
+          break;
+        }
+        if (!"nErsubz".includes(option)) return true;
+      }
+      continue;
+    }
+    positional.push(arg);
+  }
+  if (!explicitScript && positional[0] !== undefined) scripts.push(positional[0]);
+  return scripts.some((script) => /[eWw]/.test(script));
 }
 
 function isSandboxPackageMutation(base: string, args: string[]): boolean {

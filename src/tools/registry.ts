@@ -1,19 +1,22 @@
 import { AgentFeatures, resolveFeatures } from "../agent/profile.js";
-import { PlanController } from "../agent/planning.js";
+import { PlanController, PlanUpdate, StepEvidence } from "../agent/planning.js";
 import { LocalExecutor, PathMapper, resolveDisplayRoot } from "../runtime/executor.js";
 import { ToolExecutionContext, ToolResult } from "../types.js";
 import { safeJsonStringify } from "../utils/truncate.js";
+import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
+import { lstat, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
-import { commandPolicyError, parseCommand, quoteArg, StructuredCommand } from "./command.js";
+import { commandPolicyError, isReadOnlyInspectionCommand, parseCommand, quoteArg, StructuredCommand } from "./command.js";
 import { listFiles, readRepoFile, replaceText, searchCode, writeRepoFile } from "./fileTools.js";
-import { gitDiff, gitStatus } from "./git.js";
+import { gitDiff, gitStatus, repositoryContentDigest } from "./git.js";
 import { isProtectedRepoPath, resolveSafeRepoPath } from "./pathGuard.js";
 import { JsonSchema, parseAndValidateArgs } from "./schema.js";
 import { detectTestCommand } from "./testCommand.js";
 
 const MAX_TEST_TARGET_LENGTH = 512;
 const TARGETED_RUN_NOTE = "A run with targets does not verify the latest change; run run_tests without targets before finish_task.";
+const CONTENT_TRACKING_NOTE = "Content tracking was unavailable; this command counted as a change.";
 // Their output comes from a process, not from a repository file, so host paths in it are rewritten.
 const COMMAND_OUTPUT_TOOLS = new Set(["run_command", "run_tests", "git_status", "git_diff"]);
 
@@ -53,6 +56,13 @@ export function createToolRegistry(
   resolveDisplayRoot(executor, repoRoot, context.displayRoot);
   const paths = executor.pathMapper;
   const isolatedGit = executor.kind === "docker";
+  const contentDigest = async () => {
+    try {
+      return await repositoryContentDigest(repoRoot, context.timeoutSec, isolatedGit);
+    } catch {
+      return undefined;
+    }
+  };
   // Error text (ENOENT, escapes-root) and command output can name host paths; the model only ever sees
   // display paths. Only a whole path matches: neither /host/repo2 nor /x/host/repo is the host root.
   const escapedHostRoot = paths.hostRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -80,6 +90,7 @@ export function createToolRegistry(
 
       if (name === "set_plan") return plan.setPlan(args.steps as string[]);
       if (name === "update_plan") {
+        if (features.leanPlanning) return plan.updatePlanBatch(args.updates as PlanUpdate[]);
         return plan.updatePlan({
           stepId: args.stepId as number,
           status: args.status as any,
@@ -87,14 +98,26 @@ export function createToolRegistry(
         });
       }
       if (name === "finish_task") {
-        const result = plan.finish(args.summary as string);
+        const result = plan.finish(
+          args.summary as string,
+          features.leanPlanning ? args.stepEvidence as StepEvidence[] | undefined : undefined
+        );
         if (result.ok) registry.finishAccepted = true;
         return result;
       }
 
       if (context.enforcePlanning && MUTATING_OR_ACTION_TOOLS.has(name)) {
-        const authorization = plan.canMutate();
-        if (!authorization.ok) return authorization;
+        const leanInspection = features.leanPlanning && (
+          name === "run_tests" ||
+          (name === "run_command" && features.sandboxCommands && isReadOnlyInspectionCommand(
+            args.program as string,
+            (args.args as string[] | undefined) ?? []
+          ))
+        );
+        if (!leanInspection) {
+          const authorization = plan.canMutate();
+          if (!authorization.ok) return authorization;
+        }
       }
 
       // A model-visible path such as /testbed/x.py names the host checkout before any path check.
@@ -110,14 +133,34 @@ export function createToolRegistry(
         case "read_file":
           result = await readRepoFile(repoRoot, fileArgs as any, features.retrieval);
           break;
-        case "write_file":
+        case "write_file": {
+          let before: string | undefined;
+          try {
+            before = features.leanPlanning ? await fileContentDigest(repoRoot, fileArgs.path as string) : undefined;
+          } catch (error) {
+            result = failure(error instanceof Error ? error.message : String(error));
+            break;
+          }
           result = await writeRepoFile(repoRoot, fileArgs as any);
-          if (result.ok) plan.recordWrite();
+          if (result.ok && (
+            !features.leanPlanning || before !== await fileContentDigest(repoRoot, fileArgs.path as string)
+          )) plan.recordWrite();
           break;
-        case "replace_text":
+        }
+        case "replace_text": {
+          let before: string | undefined;
+          try {
+            before = features.leanPlanning ? await fileContentDigest(repoRoot, fileArgs.path as string) : undefined;
+          } catch (error) {
+            result = failure(error instanceof Error ? error.message : String(error));
+            break;
+          }
           result = await replaceText(repoRoot, fileArgs as any, features.retrieval);
-          if (result.ok) plan.recordWrite();
+          if (result.ok && (
+            !features.leanPlanning || before !== await fileContentDigest(repoRoot, fileArgs.path as string)
+          )) plan.recordWrite();
           break;
+          }
         case "run_command": {
           const program = args.program as string;
           const commandArgs = (args.args as string[] | undefined) ?? [];
@@ -130,6 +173,7 @@ export function createToolRegistry(
             result = failure(error instanceof Error ? error.message : String(error));
             break;
           }
+          const before = features.leanPlanning ? await contentDigest() : undefined;
           // The arguments stay exactly as the model wrote them: the executor's own mapper validated them,
           // and display paths are valid where it runs them.
           const execution = await executor.run({
@@ -141,9 +185,20 @@ export function createToolRegistry(
           });
           if (execution.ok) {
             records.push({ type: "command", command: execution.data.command, exitCode: execution.data.exitCode });
-            plan.recordWrite();
           }
-          result = execution;
+          let contentTrackingUnavailable = false;
+          if (!features.leanPlanning) {
+            if (execution.ok) plan.recordWrite();
+          } else {
+            const after = before?.ok ? await contentDigest() : undefined;
+            contentTrackingUnavailable = !before?.ok || !after?.ok;
+            if (!before?.ok || !after?.ok || before.data.digest !== after.data.digest) {
+              plan.recordWrite();
+            }
+          }
+          result = execution.ok && contentTrackingUnavailable
+            ? { ...execution, data: appendNote(execution.data, CONTENT_TRACKING_NOTE) }
+            : execution;
           break;
         }
         case "run_tests": {
@@ -168,6 +223,7 @@ export function createToolRegistry(
           }
           const argv = [parsed.program, ...parsed.args, ...targets];
           const displayCommand = [command, ...targets.map(quoteArg)].join(" ");
+          const before = features.leanPlanning ? await contentDigest() : undefined;
           const execution = await executor.run({
             program: parsed.program,
             args: argv.slice(1),
@@ -177,16 +233,29 @@ export function createToolRegistry(
             displayCommand,
             ...(features.compactObservations ? { captureFailures: true } : {})
           });
+          let contentTrackingUnavailable = false;
+          if (features.leanPlanning) {
+            const after = before?.ok ? await contentDigest() : undefined;
+            contentTrackingUnavailable = !before?.ok || !after?.ok;
+            if (!before?.ok || !after?.ok || before.data.digest !== after.data.digest) {
+              plan.recordWrite();
+            }
+          }
           if (execution.ok) {
             const passed = execution.data.exitCode === 0 && !execution.data.timedOut;
             // A subset run verifies the latest change only where the operator allows it (SWE-bench).
             const subsetOnly = targets.length > 0 && !context.allowTargetedVerification;
             const targetData = targets.length ? { targets } : {};
             records.push({ type: "test", command: displayCommand, argv, passed, exitCode: execution.data.exitCode, ...targetData });
-            plan.recordWrite();
+            if (!features.leanPlanning) plan.recordWrite();
             plan.recordValidation(passed && !subsetOnly);
-            const gate = subsetOnly ? { verifiesLatestChange: false, note: TARGETED_RUN_NOTE } : {};
-            result = { ok: true, data: { ...execution.data, passed, ...targetData, ...gate }, truncated: execution.truncated };
+            const gate = subsetOnly ? { verifiesLatestChange: false } : {};
+            let data = { ...execution.data, passed, ...targetData, ...gate };
+            if (subsetOnly) data = features.leanPlanning
+              ? appendNote(data, TARGETED_RUN_NOTE)
+              : { ...data, note: TARGETED_RUN_NOTE };
+            if (contentTrackingUnavailable) data = appendNote(data, CONTENT_TRACKING_NOTE);
+            result = { ok: true, data, truncated: execution.truncated };
           } else result = execution;
           break;
         }
@@ -209,6 +278,11 @@ export function createToolRegistry(
 
 export function serializeToolResult(result: ToolResult<unknown>): string {
   return safeJsonStringify(result);
+}
+
+function appendNote<T extends object>(data: T, note: string): T & { note: string } {
+  const existing = "note" in data && typeof data.note === "string" ? data.note : "";
+  return { ...data, note: existing ? `${existing}\n${note}` : note };
 }
 
 const MUTATING_OR_ACTION_TOOLS = new Set(["write_file", "replace_text", "run_command", "run_tests"]);
@@ -293,8 +367,56 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 
 export function toolDefinitionsFor(flags: Partial<AgentFeatures> = {}): ToolDefinition[] {
   const features = resolveFeatures(flags);
-  if (!features.retrieval && !features.sandboxCommands) return TOOL_DEFINITIONS;
+  if (!features.retrieval && !features.sandboxCommands && !features.leanPlanning) return TOOL_DEFINITIONS;
   return TOOL_DEFINITIONS.map((definition) => {
+    if (features.leanPlanning && definition.name === "update_plan") {
+      return {
+        ...definition,
+        description: "Update plan steps only when their status changes. Batch 1-8 updates; evidence naming the failure is required to clear a required replan.",
+        parameters: {
+          type: "object",
+          properties: {
+            updates: {
+              type: "array", minItems: 1, maxItems: 8,
+              items: {
+                type: "object",
+                properties: {
+                  stepId: { type: "integer", minimum: 1, maximum: 8 },
+                  status: { type: "string", enum: ["pending", "in_progress", "completed", "blocked"] },
+                  evidence: { type: "string" }
+                },
+                required: ["stepId", "status"], additionalProperties: false
+              }
+            }
+          },
+          required: ["updates"], additionalProperties: false
+        }
+      };
+    }
+    if (features.leanPlanning && definition.name === "finish_task") {
+      return {
+        ...definition,
+        description: "Finish after verification; stepEvidence can complete remaining steps atomically before finish checks.",
+        parameters: {
+          type: "object",
+          properties: {
+            summary: { type: "string" },
+            stepEvidence: {
+              type: "array", minItems: 1, maxItems: 8,
+              items: {
+                type: "object",
+                properties: {
+                  stepId: { type: "integer", minimum: 1, maximum: 8 },
+                  evidence: { type: "string" }
+                },
+                required: ["stepId", "evidence"], additionalProperties: false
+              }
+            }
+          },
+          required: ["summary"], additionalProperties: false
+        }
+      };
+    }
     if (features.sandboxCommands && definition.name === "run_command") {
       return { ...definition, description: "Run a command in an isolated, network-less container. Inline Python/Node and read-only git, grep, and sed are allowed; installs and mutating commands are refused." };
     }
@@ -323,6 +445,21 @@ export function toolDefinitionsFor(flags: Partial<AgentFeatures> = {}): ToolDefi
     }
     return definition;
   });
+}
+
+async function fileContentDigest(repoRoot: string, file: string): Promise<string> {
+  try {
+    const safe = await resolveSafeRepoPath(repoRoot, file);
+    const info = await lstat(safe);
+    const hash = createHash("sha256");
+    if (info.isSymbolicLink()) hash.update(await readlink(safe));
+    else if (info.isFile()) hash.update(await readFile(safe));
+    else hash.update(`other:${info.mode}:${info.size}`);
+    return hash.digest("hex");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw error;
+  }
 }
 
 function failure(error: string): ToolResult<never> {

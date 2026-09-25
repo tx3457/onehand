@@ -160,7 +160,7 @@ Do not commit environment files or any raw artifact that contains a secret. Revi
 npm run eval:swebench -- selfcheck --split dev --repeat 2 --image-source epoch --output eval/results/selfcheck-dev
 
 # 2. Run variants in one interleaved evaluation, e.g. a baseline diagnostic or an A/B window.
-npm run eval:swebench -- run --split dev --variants baseline,ctx,ctx-sandbox --repetitions 1 --concurrency 4 \
+npm run eval:swebench -- run --split dev --variants baseline,ctx,ctx-sandbox,ctx-sandbox-mask,full --repetitions 1 --concurrency 4 \
   --cost-cap-usd 12 --model deepseek-flash --env-file /absolute/path/to/private.env \
   --output eval/results/<name>
 

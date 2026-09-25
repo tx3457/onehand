@@ -25,9 +25,11 @@ function registry(flags = {}, docker = false) {
 
 describe("profile features", () => {
   it("defaults all features to false and validates names and boolean values", () => {
-    expect(resolveFeatures({})).toEqual({ retrieval: false, compactObservations: false, sandboxCommands: false });
+    expect(resolveFeatures({})).toEqual({ retrieval: false, compactObservations: false, sandboxCommands: false, observationMasking: false, leanPlanning: false });
     expect(resolveProfile("ctx").flags).toEqual({ retrieval: true, compactObservations: true });
     expect(resolveProfile("ctx-sandbox").flags).toEqual({ retrieval: true, compactObservations: true, sandboxCommands: true });
+    expect(resolveProfile("ctx-sandbox-mask").flags).toEqual({ retrieval: true, compactObservations: true, sandboxCommands: true, observationMasking: true });
+    expect(resolveProfile("full").flags).toEqual({ retrieval: true, compactObservations: true, sandboxCommands: true, observationMasking: true, leanPlanning: true });
     for (const flags of [{ typo: true }, { retrieval: 1 }, { compactObservations: "true" }, { constructor: false }, null, []]) {
       expect(() => resolveFeatures(flags)).toThrow();
       expect(() => registry(flags as {})).toThrow();
@@ -43,7 +45,7 @@ describe("profile features", () => {
     expect(TOOL_DEFINITIONS.find((tool) => tool.name === "read_file")!.parameters.properties).not.toHaveProperty("startLine");
     const sandbox = toolDefinitionsFor(PROFILES["ctx-sandbox"].flags);
     expect(sandbox.find((tool) => tool.name === "run_command")!.description).toContain("container");
-    expect(new Set(Object.values(PROFILES).map((profile) => agentBehaviorFingerprint(profile))).size).toBe(3);
+    expect(new Set(Object.values(PROFILES).map((profile) => agentBehaviorFingerprint(profile))).size).toBe(5);
     expect(() => agentBehaviorFingerprint({ name: "invalid", flags: { typo: true } as any })).toThrow();
   });
 

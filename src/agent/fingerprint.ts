@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { AgentProfile, PROFILES, resolveFeatures } from "./profile.js";
-import { buildUserPrompt, SYSTEM_PROMPT } from "./prompt.js";
+import { buildUserPrompt, effectiveSystemPrompt } from "./prompt.js";
 import { CACHE_ISOLATION_TEMPLATE, OUTPUT_LIMIT_NUDGE, TEXT_ONLY_NUDGE } from "./runner.js";
 import { toolDefinitionsFor } from "../tools/registry.js";
 
@@ -18,7 +18,7 @@ export function fingerprintOf(parts: unknown): string {
 export function agentBehaviorFingerprint(profile: AgentProfile = PROFILES.baseline): string {
   const placeholders = { task: "<task>", repo: "<repo>" };
   return fingerprintOf({
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: effectiveSystemPrompt(resolveFeatures(profile.flags)),
     cacheIsolationTemplate: CACHE_ISOLATION_TEMPLATE,
     userPrompts: [
       buildUserPrompt({ ...placeholders, testCommand: "<test-command>" }),

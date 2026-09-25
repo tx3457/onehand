@@ -1,3 +1,5 @@
+import type { AgentFeatures } from "./profile.js";
+
 export const SYSTEM_PROMPT = `You are onehand, an autonomous local code repository agent.
 
 Core workflow:
@@ -11,6 +13,23 @@ Core workflow:
 - Do not claim success unless tool results support it.
 - Mark every plan step completed with evidence, then call finish_task. A normal assistant message is not a completion signal.
 - Final reports must describe only actual tool results: changed files, commands/tests run, pass/fail state, and remaining risks.`;
+
+export function effectiveSystemPrompt(features: Partial<AgentFeatures> = {}): string {
+  if (!features.leanPlanning) return SYSTEM_PROMPT;
+  return SYSTEM_PROMPT
+    .replace(
+      "- Before any repository mutation or command, call set_plan with a concise 1-8 step plan.",
+      "- Inspect and reproduce freely before planning: run_tests and sandbox read-only inspection commands are allowed even while replanning is required; call set_plan before editing or running inline code or other commands, with a concise 1-8 step plan."
+    )
+    .replace(
+      "- After each meaningful observation, call update_plan with concrete evidence. If a test or tool fails repeatedly, revise the plan instead of repeating the same call.",
+      "- Call update_plan only when a step's status changes, batching updates in one call. If a test or tool fails repeatedly, revise the plan instead of repeating the same call; to clear required replanning, call set_plan or update_plan with non-empty evidence. That evidence must name the failure.\n- Batch independent read-only tool calls in a single response."
+    )
+    .replace(
+      "- Mark every plan step completed with evidence, then call finish_task. A normal assistant message is not a completion signal.",
+      "- Use finish_task stepEvidence to close the remaining steps with evidence. All steps must be completed and the latest real change must have passing verification. A normal assistant message is not a completion signal."
+    );
+}
 
 export function buildUserPrompt(options: {
   task: string;

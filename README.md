@@ -80,13 +80,17 @@ The demo prints a prominent disclosure that provider decisions are scripted; it 
 
 ## Agent profiles
 
-The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support three profiles:
+The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support five profiles:
 
 - `baseline`: unchanged tool definitions, prompts, JSON observations, and command policy.
 - `ctx`: windowed, numbered reads; grouped search and directory summaries (E4); compact text observations (E3).
 - `ctx-sandbox`: `ctx` plus inline Python/Node and read-only git/grep/sed commands in an isolated container (E8). Requires a Docker executor; local executors reject it.
+- `ctx-sandbox-mask`: `ctx-sandbox` plus deterministic observation masking (E5). When the previous response reports more than 48,000 prompt tokens, retain the newest complete tool rounds within a 48 KiB serialized-history budget (at least 2, at most 10). Assistant text, reasoning, and tool results all count toward that budget; the minimum 2 rounds may exceed it. Apply a masking block only if the full history, including its replacement context note, shrinks by at least 32 KiB. Otherwise history and note placement remain untouched, preserving the prompt-cache prefix. A real event refreshes the plan/modified-files note, checkpoints masked history, and traces `bytesRemoved`, `bytesKept`, and `keptRounds`.
+- `full`: `ctx-sandbox-mask` plus lean planning (E1): atomic batched `update_plan`, transactional `finish_task stepEvidence`, pre-plan tests and read-only inspection, and content-based mutation tracking.
 
 Feature flags are validated booleans and default to false. Unknown flags are rejected. The CLI still uses `baseline`.
+
+The three existing profiles retain their original prompts, tool schemas, and behavior fingerprints. Masking makes no extra model calls and does not discount token budgets. `full` hashes its effective lean prompt and tool schemas in its behavior fingerprint.
 
 ## Completion and recovery semantics
 
@@ -99,6 +103,10 @@ Feature flags are validated booleans and default to false. Unknown flags are rej
 4. Repeating the same failed tool action twice requires a plan update before further action.
 5. `finish_task` is rejected while a step is incomplete, replanning is required, or the newest write lacks passing verification.
 6. Each tool round is checkpointed when persistence is enabled. Resume rejects state from a different task, repository, provider, model, or Git commit.
+
+With `leanPlanning`, `run_tests` and sandbox read-only inspection can run before a plan or while a replan is required. Edits, inline code, and other commands still require a plan. `update_plan` accepts `updates: [{ stepId, status, evidence? }]` (1–8 entries); only `set_plan` or an update carrying non-empty evidence clears required replanning. That evidence must name the failure. `finish_task` can complete remaining steps using `stepEvidence: [{ stepId, evidence }]`; rejection restores the entire previous plan. Commands and tests increment the write revision only when repository content changes, and no-op file edits preserve verification.
+
+Lean mutation checks stream the content of paths reported by hardened host `git status --porcelain`, including non-ignored untracked files and executable-bit changes. A dirty protected path or an unreadable/truncated status makes content tracking unavailable; protected content is never read. Commands and tests still run, preserve their actual results, and conservatively count as a change, with a note appended to any existing result note. A passing full test run verifies that change after it is recorded; targeted-only tests retain their verification restriction. The inspection classifier is conservative for `sed`: script files, unknown options, and scripts containing `e`, `w`, or `W` remain gated, including benign uses of those characters. Ordinary numeric-range reads such as `sed -n '1,20p' file` remain available before planning.
 
 ## Safety boundary
 
@@ -128,7 +136,7 @@ npm run build
 npm run eval:deterministic
 ```
 
-The local suite has 364 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 34 files:
+The local suite has 407 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 40 files:
 
 - A 10-scenario Agent suite, run against temporary Git fixtures. It covers multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry.
 - Provider-contract tests. One checks that DeepSeek `reasoning_content` is sent back on later tool-carrying requests; another checks that no `temperature` is sent in thinking mode; another checks that a reasoning-only, tool-call-free turn replays with string content instead of `content: null`.
@@ -149,6 +157,7 @@ The local suite has 364 self-contained deterministic tests, 2 local-dataset chec
   - `/testbed` paths in every file tool and in `run_command`;
   - `run_tests` target validation and the operator-trusted test command.
 - Fingerprint tests for the pure `fingerprintOf` hash and its sensitivity to any single input change, and for the agent-profile part of the behavior fingerprint.
+- Phase 2 profile tests pin all three existing fingerprints, exercise masking for DeepSeek and OpenAI histories with trace/checkpoint/resume checks, and cover lean plan transactions, inspection gates, and real-content mutation tracking. A scripted `full` run exercises both features together without Docker or network access.
 - Evaluation-harness tests for: the cost cap surviving a resume for a thrown run's worst-case charge; a mis-keyed row being substituted instead of crashing a later "Duplicate" check; the audited copy in `invalid-results.jsonl` staying redacted; and the source fingerprint changing when any tracked file changes.
 - An offline integration test that drives the real evaluation `runOne` path with a scripted DeepSeek client, including that the trace's frozen budgets match the manifest exactly.
 - SWE-bench plumbing tests:

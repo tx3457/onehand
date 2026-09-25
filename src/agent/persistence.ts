@@ -25,6 +25,7 @@ export type PersistedRunState = {
   status: RunStatus;
   stopReason?: StopReason;
   textOnlyNudges?: number;
+  previousPromptTokens?: number;
   startedAt: string;
   updatedAt: string;
 };
@@ -82,6 +83,9 @@ export class RunStore {
     for (const field of new Set([...USAGE_FIELDS, ...Object.keys(usage)])) {
       if (!Number.isFinite(usage[field])) throw new Error(`Corrupt run state: usage.${field} is not a number`);
     }
+    if (state.previousPromptTokens !== undefined && !Number.isFinite(state.previousPromptTokens)) {
+      throw new Error("Corrupt run state: previousPromptTokens is not a number");
+    }
     const store = new RunStore({ runId: state.runId, runDir: path.dirname(statePath) });
     return { store, state };
   }
@@ -115,11 +119,17 @@ export function redactDeep<T>(value: T): T {
   if (value && typeof value === "object") {
     const output: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      output[key] = isSensitiveKey(key) && !isRedactionExempt(item) ? "[REDACTED]" : redactDeep(item);
+      output[key] = isSensitiveKey(key) && !isRedactionExempt(item) && !isReasoningPlaceholder(key, item)
+        ? "[REDACTED]"
+        : redactDeep(item);
     }
     return output as T;
   }
   return value;
+}
+
+function isReasoningPlaceholder(key: string, value: unknown): boolean {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "") === "reasoningcontent" && value === "[elided]";
 }
 
 function isSensitiveKey(key: string): boolean {

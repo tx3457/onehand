@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { agentBehaviorFingerprint, fingerprintOf } from "../src/agent/fingerprint.js";
 import { PROFILES, resolveProfile } from "../src/agent/profile.js";
+import * as prompts from "../src/agent/prompt.js";
 
 describe("fingerprintOf", () => {
   it("changes when any single part changes", () => {
@@ -19,6 +20,16 @@ describe("fingerprintOf", () => {
 });
 
 describe("agentBehaviorFingerprint", () => {
+  it("hashes the effective profile prompt", () => {
+    const before = agentBehaviorFingerprint(PROFILES.full);
+    const effective = vi.spyOn(prompts, "effectiveSystemPrompt").mockReturnValue("changed profile instructions");
+    try {
+      expect(agentBehaviorFingerprint(PROFILES.full)).not.toBe(before);
+      expect(effective).toHaveBeenCalledWith(expect.objectContaining({ leanPlanning: true }));
+    } finally {
+      effective.mockRestore();
+    }
+  });
   it("includes the agent profile name and flags and stays stable", () => {
     const baseline = agentBehaviorFingerprint();
     expect(baseline).toMatch(/^[a-f0-9]{64}$/);

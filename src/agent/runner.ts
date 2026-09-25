@@ -6,9 +6,10 @@ import { APIConnectionError } from "openai";
 import { PlanController } from "./planning.js";
 import { PersistedRunState, RUN_STATE_VERSION, RunStore, summarizeToolArguments } from "./persistence.js";
 import { AgentProfile, PROFILES, resolveFeatures } from "./profile.js";
-import { buildUserPrompt, SYSTEM_PROMPT } from "./prompt.js";
+import { buildUserPrompt, effectiveSystemPrompt } from "./prompt.js";
 import { createModelProvider } from "../providers/index.js";
 import type { ModelProvider, NormalizedToolCall, ResponsesClient } from "../providers/index.js";
+import { maskProviderHistory } from "../providers/historyMasking.js";
 import { Executor, LocalExecutor, resolveDisplayRoot } from "../runtime/executor.js";
 import { PlanSnapshot, RunReport, RunStatus, RunUsage, StopReason, ToolResult } from "../types.js";
 import { renderToolResult } from "../tools/render.js";
@@ -78,6 +79,7 @@ export const OUTPUT_LIMIT_NUDGE = "Your previous response hit the output limit b
 // Only the nonce varies between runs; the behavior fingerprint covers this fixed template.
 export const CACHE_ISOLATION_TEMPLATE = "Session: <nonce>";
 const CACHE_ISOLATION_NONCE = /^[A-Za-z0-9-]{8,64}$/;
+const OBSERVATION_MASK_PROMPT_TOKENS = 48_000;
 // A dropped, refused, or timed-out connection, as Node's sockets and undici (under fetch) report it.
 export const NETWORK_ERROR_CODES: readonly string[] = [
   "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED", "EPIPE", "ENETUNREACH", "EHOSTUNREACH",
@@ -169,9 +171,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   const plan = new PlanController(restored?.plan);
   const verificationCommand = options.testCommand ?? await detectTestCommand(repoRoot) ?? "";
   const allowTargetedVerification = options.allowTargetedVerification ?? false;
+  const systemPrompt = effectiveSystemPrompt(features);
   const instructions = options.cacheIsolationNonce
-    ? `${CACHE_ISOLATION_TEMPLATE.replace("<nonce>", options.cacheIsolationNonce)}\n\n${SYSTEM_PROMPT}`
-    : SYSTEM_PROMPT;
+    ? `${CACHE_ISOLATION_TEMPLATE.replace("<nonce>", options.cacheIsolationNonce)}\n\n${systemPrompt}`
+    : systemPrompt;
   const registry = createToolRegistry({
     repoRoot,
     features,
@@ -196,6 +199,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   const failureSignatures = new Map(Object.entries(restored?.failureSignatures ?? {}));
   let finalMessage = restored?.finalMessage ?? "";
   let textOnlyNudges = restored?.textOnlyNudges ?? 0;
+  let previousPromptTokens = restored?.previousPromptTokens ?? 0;
   let status: RunStatus = "failed";
   let stopReason: StopReason = "step_budget";
   const startedAt = restored?.startedAt ?? new Date().toISOString();
@@ -230,6 +234,43 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         break;
       }
 
+      if (features.observationMasking && previousPromptTokens > OBSERVATION_MASK_PROMPT_TOKENS) {
+        const statusResult = await gitStatus(repoRoot, git.timeoutSec, git.isolatedConfig);
+        const masked = maskProviderHistory(
+          provider.name,
+          history,
+          renderContextNote(plan.snapshot(), statusResult.ok ? statusResult.data.changedFiles : [])
+        );
+        if (masked.maskedItems > 0) {
+          history.splice(0, history.length, ...masked.history);
+          await store?.trace("context_masked", {
+            round: usage.modelRounds,
+            promptTokensBefore: previousPromptTokens,
+            maskedItems: masked.maskedItems,
+            bytesRemoved: masked.bytesRemoved,
+            bytesKept: masked.bytesKept,
+            keptRounds: masked.keptRounds
+          });
+          await saveCheckpoint(store, {
+            task: options.task,
+            repo: repoRoot,
+            gitHead,
+            provider: provider.name,
+            model,
+            history,
+            plan: plan.snapshot(),
+            usage,
+            records: registry.records,
+            failureSignatures,
+            finalMessage,
+            status: "stopped",
+            textOnlyNudges,
+            previousPromptTokens,
+            startedAt
+          }, git);
+        }
+      }
+
       const turnStarted = Date.now();
       const turn = await completeWithRetry(provider, {
         model,
@@ -248,6 +289,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
       const latencyMs = Date.now() - turnStarted;
       usage.modelRounds += 1;
       addUsage(usage, turn.usage);
+      previousPromptTokens = turn.usage.inputTokens;
       history.push(...turn.historyItems);
       if (turn.message) finalMessage = turn.message;
       await store?.trace("model_turn", {
@@ -375,6 +417,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           status: shouldStop ? status : "stopped",
           stopReason: shouldStop ? stopReason : undefined,
           textOnlyNudges,
+          ...(features.observationMasking ? { previousPromptTokens } : {}),
           startedAt
         }, git);
         if (shouldStop) {
@@ -436,6 +479,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     status,
     stopReason,
     textOnlyNudges,
+    ...(features.observationMasking ? { previousPromptTokens } : {}),
     startedAt
   }, git);
   await store?.trace("run_finished", { status, stopReason, usage, plan: compactPlan(plan.snapshot()) });
@@ -706,4 +750,15 @@ function compactPlan(plan: PlanSnapshot): Record<string, unknown> {
     needsReplan: plan.needsReplan,
     steps: plan.steps.map((step) => ({ id: step.id, status: step.status }))
   };
+}
+
+function renderContextNote(plan: PlanSnapshot, modifiedFiles: string[]): string {
+  const steps = plan.steps.length > 0
+    ? plan.steps.map((step) => `${step.id} ${step.status} ${step.description}`).join("\n")
+    : "(no plan set)";
+  return [
+    "Context note: older tool observations were masked to save context.",
+    `Plan:\n${steps}`,
+    `Modified files: ${modifiedFiles.length > 0 ? modifiedFiles.join(", ") : "(none)"}`
+  ].join("\n");
 }
