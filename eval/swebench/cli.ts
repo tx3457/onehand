@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import path from "node:path";
+import { PROFILES } from "../../src/agent/profile.js";
 import { loadDeepSeekEnvironment } from "../env.js";
 import { capReachedFrom, loadResultSet } from "../results-io.js";
 import type { SwebenchManifest, SwebenchRunResult } from "../types.js";
@@ -16,7 +17,7 @@ program
   .command("run")
   .description("run agent variants on SWE-bench instances in containers and grade each patch with the official harness")
   .requiredOption("--split <split>", "dev or holdout", parseSplit)
-  .option("--variants <names>", "comma-separated agent profiles", parseNames, ["baseline"])
+  .option("--variants <names>", `comma-separated agent profiles (${Object.keys(PROFILES).join(", ")})`, parseNames, ["baseline"])
   .option("--repetitions <n>", "runs per instance and variant", positiveInt, 1)
   .option("--task-ids <ids>", "comma-separated instance ids from the split (default: the whole split minus exclusions)", parseIds)
   .option("--concurrency <n>", "runs in parallel", positiveInt, 1)

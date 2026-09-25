@@ -78,6 +78,23 @@ npm run demo
 
 The demo prints a prominent disclosure that provider decisions are scripted; it is regression evidence for the execution loop, not a model-quality result.
 
+## Web UI
+
+```bash
+onehand ui --port 0 --runs-dir ~/.onehand/runs --results-dir ./eval/results
+onehand ui --open
+```
+
+The command prints a local URL with a single-use access token. Port `0` (the default) chooses a free port; `--open` launches the default browser. Defaults are `~/.onehand/runs` and `eval/results` under the current directory: run it from the repository root, or use `--results-dir` to browse another results folder. Ctrl+C stops the server. No provider keys, model calls, dependencies or frontend build step are needed.
+
+- **Runs:** newest first, with task, repository basename, provider/model, status, stop reason, rounds, calls, tokens and update time. Run details show plan evidence, usage totals, the final message and trace events, including masking, sub-agents, permissions and checkpoints. Raw conversation history and stored tool outputs are excluded.
+- **Checkpoints:** list the run repository's shadow-Git snapshots and display a colored unified diff against its current tree. There is no restore action. The existing `CheckpointStore.list()`/`diff()` methods may initialize or update internal shadow-Git metadata and temporary objects; they leave the source working tree and its Git history/index unchanged. Avoid concurrent checkpoint operations from other processes.
+- **Evaluations:** per-variant metrics, SVG cost/resolved-rate bars, and safe Markdown views of `report.md`, `compare-*.md` and `analysis.md`. Directories named with `INVALID` or containing `INVALID.txt` are labeled invalidated and excluded from detail views. Unrecorded metrics display `—`, including token means absent from older per-variant summaries; the UI does not rerun evaluations.
+
+The server binds only `127.0.0.1`. The one-time `?token=` URL is exchanged for an `HttpOnly; SameSite=Strict` session cookie and redirected to a clean URL. Keep that URL private; restart the server to obtain a new one. Every page, asset and API request requires authentication. Exact loopback Host headers and same-origin API Origin headers prevent DNS rebinding and cross-origin access. Only GET is accepted. CSP blocks inline scripts/styles and framing; responses also use `nosniff`, `no-referrer` and `no-store`.
+
+Run/evaluation IDs must appear in the configured directories; artifact reads are realpath-confined to their selected directory, including symlink checks. State is redacted again and projected to display fields. Checkpoint reads go only through `CheckpointStore` for the repository recorded in that state. Responses are capped at 4 MiB, state files at 8 MiB, trace tails at 2 MiB and 2,000 events, reports at 256 KiB each (up to 20), and diffs at 512 KiB; truncated trace/diff views are labeled. Markdown HTML is escaped before rendering, and no remote resources are loaded.
+
 ## Interactive use
 
 ```bash
@@ -210,11 +227,12 @@ npm run build
 npm run eval:deterministic
 ```
 
-The local suite has 496 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 52 files:
+The local suite has 532 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 55 files:
 
 - A 10-scenario Agent suite, run against temporary Git fixtures. It covers multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry.
 - Provider-contract tests. One checks that DeepSeek `reasoning_content` is sent back on later tool-carrying requests; another checks that no `temperature` is sent in thinking mode; another checks that a reasoning-only, tool-call-free turn replays with string content instead of `content: null`.
 - Persistence tests: a save/load round trip, redaction rules that keep numeric usage counters, and redaction of JSON-quoted credential forms (e.g. `"apiKey":"sk-…"`).
+- Web UI tests use loopback servers on port 0 and local fixtures: one-time authentication, Host/Origin/method guards, confined reads, bounded/redacted projections, concurrent sessions/deletions, checkpoint diffs, evaluation completeness/invalidation and safe bounded Markdown rendering.
 - Runner tests for:
   - text-only turns;
   - output-limit and runtime-error stop reasons;

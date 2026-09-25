@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { Command } from "commander";
 import { runAgent } from "./agent/runner.js";
 import { createModelProvider } from "./providers/index.js";
@@ -8,6 +9,7 @@ import { gitDiff } from "./tools/git.js";
 import { normalizeRepoRoot } from "./tools/pathGuard.js";
 import { runShellCommand } from "./tools/command.js";
 import { RunReport } from "./types.js";
+import { startWebUi } from "./web/server.js";
 
 const program = new Command();
 
@@ -119,6 +121,29 @@ program
   });
 
 program
+  .command("ui")
+  .description("Browse local runs, checkpoints and evaluations (read-only)")
+  .option("--port <number>", "loopback port (0 selects a free port)", parsePort, 0)
+  .option("--runs-dir <path>", "run artifacts directory (default: ~/.onehand/runs)")
+  .option("--results-dir <path>", "evaluation results directory (default: ./eval/results)")
+  .option("--open", "open the one-time URL in the default browser")
+  .action(async (options) => {
+    const ui = await startWebUi({ port: options.port, runsDir: options.runsDir, resultsDir: options.resultsDir });
+    console.log(`OneHand read-only Web UI: ${ui.url}`);
+    console.log("The URL can be used once. Keep it private; Ctrl-C stops the server.");
+    const stop = () => { void ui.close().catch(() => { process.exitCode = 1; }); };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    if (options.open) {
+      const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "rundll32" : "xdg-open";
+      const args = process.platform === "win32" ? ["url.dll,FileProtocolHandler", ui.url] : [ui.url];
+      const browser = spawn(command, args, { stdio: "ignore", detached: true });
+      browser.once("error", () => console.error("Could not open the browser; use the printed URL."));
+      browser.unref();
+    }
+  });
+
+program
   .command("diff")
   .requiredOption("--repo <path>", "target repository path")
   .action(async (options) => {
@@ -204,6 +229,11 @@ function parsePositiveInt(value: string): number {
     throw new Error(`Expected a positive integer, got ${value}`);
   }
   return parsed;
+}
+
+function parsePort(value: string): number {
+  if (!/^\d+$/.test(value) || Number(value) > 65535) throw new Error(`Expected a port between 0 and 65535, got ${value}`);
+  return Number(value);
 }
 
 function parseNonNegativeNumber(value: string): number {
