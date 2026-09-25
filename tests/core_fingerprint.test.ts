@@ -26,10 +26,10 @@ describe("agentBehaviorFingerprint", () => {
     expect(agentBehaviorFingerprint(PROFILES.baseline)).toBe(baseline);
     expect(agentBehaviorFingerprint({ name: "baseline", flags: {} })).toBe(baseline);
     expect(agentBehaviorFingerprint({ name: "variant", flags: {} })).not.toBe(baseline);
-    const flagged = agentBehaviorFingerprint({ name: "baseline", flags: { lint: true, budget: 2 } });
+    const flagged = agentBehaviorFingerprint({ name: "baseline", flags: { retrieval: true, compactObservations: true } });
     expect(flagged).not.toBe(baseline);
-    expect(agentBehaviorFingerprint({ name: "baseline", flags: { budget: 2, lint: true } })).toBe(flagged);
-    expect(agentBehaviorFingerprint({ name: "baseline", flags: { lint: false, budget: 2 } })).not.toBe(flagged);
+    expect(agentBehaviorFingerprint({ name: "baseline", flags: { compactObservations: true, retrieval: true } })).toBe(flagged);
+    expect(agentBehaviorFingerprint({ name: "baseline", flags: { retrieval: false, compactObservations: true } })).not.toBe(flagged);
   });
 
   it("resolves only defined profiles", () => {

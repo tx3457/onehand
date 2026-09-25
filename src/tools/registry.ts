@@ -1,3 +1,4 @@
+import { AgentFeatures, resolveFeatures } from "../agent/profile.js";
 import { PlanController } from "../agent/planning.js";
 import { LocalExecutor, PathMapper, resolveDisplayRoot } from "../runtime/executor.js";
 import { ToolExecutionContext, ToolResult } from "../types.js";
@@ -39,11 +40,16 @@ export type ToolRegistry = {
 export function createToolRegistry(
   context: ToolExecutionContext & { plan?: PlanController }
 ): ToolRegistry {
+  const features = resolveFeatures(context.features);
+  const definitions = toolDefinitionsFor(features);
   const records: ToolExecutionRecord[] = [];
   const plan = context.plan ?? new PlanController();
   // A lexical and a symlinked root name the same checkout; every check and mapping uses its realpath.
   const repoRoot = realpathSync(context.repoRoot);
   const executor = context.executor ?? new LocalExecutor();
+  if (features.sandboxCommands && executor.kind !== "docker") {
+    throw new Error("sandboxCommands requires a Docker executor");
+  }
   resolveDisplayRoot(executor, repoRoot, context.displayRoot);
   const paths = executor.pathMapper;
   const isolatedGit = executor.kind === "docker";
@@ -58,12 +64,12 @@ export function createToolRegistry(
         ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, scrub(item)]))
         : value;
   const registry: ToolRegistry = {
-    definitions: TOOL_DEFINITIONS,
+    definitions,
     records,
     plan,
     finishAccepted: false,
     async execute(name, rawArgs) {
-      const definition = TOOL_DEFINITIONS.find((candidate) => candidate.name === name);
+      const definition = definitions.find((candidate) => candidate.name === name);
       if (!definition) return failure(`Unknown tool: ${name}`);
       let args: Record<string, unknown>;
       try {
@@ -96,20 +102,20 @@ export function createToolRegistry(
       let result: ToolResult<unknown>;
       switch (name) {
         case "list_files":
-          result = await listFiles(repoRoot, fileArgs as any);
+          result = await listFiles(repoRoot, fileArgs as any, features.retrieval);
           break;
         case "search_code":
-          result = await searchCode(repoRoot, fileArgs as any);
+          result = await searchCode(repoRoot, fileArgs as any, features.retrieval);
           break;
         case "read_file":
-          result = await readRepoFile(repoRoot, fileArgs as any);
+          result = await readRepoFile(repoRoot, fileArgs as any, features.retrieval);
           break;
         case "write_file":
           result = await writeRepoFile(repoRoot, fileArgs as any);
           if (result.ok) plan.recordWrite();
           break;
         case "replace_text":
-          result = await replaceText(repoRoot, fileArgs as any);
+          result = await replaceText(repoRoot, fileArgs as any, features.retrieval);
           if (result.ok) plan.recordWrite();
           break;
         case "run_command": {
@@ -118,8 +124,8 @@ export function createToolRegistry(
           let cwd: string;
           try {
             cwd = await resolveSafeRepoPath(repoRoot, paths.toHost((args.cwd as string | undefined) ?? "."));
-            await validateCommandPaths(repoRoot, cwd, program, commandArgs, paths, true);
-            assertCommandPolicy(program, commandArgs, context.allowDestructive);
+            await validateCommandPaths(repoRoot, cwd, program, commandArgs, paths, true, features.sandboxCommands);
+            assertCommandPolicy(program, commandArgs, context.allowDestructive, features.sandboxCommands);
           } catch (error) {
             result = failure(error instanceof Error ? error.message : String(error));
             break;
@@ -168,7 +174,8 @@ export function createToolRegistry(
             cwd: repoRoot,
             timeoutSec: (args.timeoutSec as number | undefined) ?? context.timeoutSec,
             truncation: "head_tail",
-            displayCommand
+            displayCommand,
+            ...(features.compactObservations ? { captureFailures: true } : {})
           });
           if (execution.ok) {
             const passed = execution.data.exitCode === 0 && !execution.data.timedOut;
@@ -284,12 +291,46 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   { type: "function", name: "git_diff", description: "Return the current working tree diff.", parameters: emptyObject }
 ];
 
+export function toolDefinitionsFor(flags: Partial<AgentFeatures> = {}): ToolDefinition[] {
+  const features = resolveFeatures(flags);
+  if (!features.retrieval && !features.sandboxCommands) return TOOL_DEFINITIONS;
+  return TOOL_DEFINITIONS.map((definition) => {
+    if (features.sandboxCommands && definition.name === "run_command") {
+      return { ...definition, description: "Run a command in an isolated, network-less container. Inline Python/Node and read-only git, grep, and sed are allowed; installs and mutating commands are refused." };
+    }
+    if (!features.retrieval) return definition;
+    if (definition.name === "read_file") {
+      return {
+        ...definition,
+        description: "Read numbered UTF-8 lines. Optional startLine/endLine are inclusive (600-line cap); files over 400 lines default to 1–200 plus a Python outline. Remove line numbers before editing.",
+        parameters: { ...definition.parameters, properties: {
+          ...definition.parameters.properties,
+          startLine: { type: "integer", minimum: 1 }, endLine: { type: "integer", minimum: 1 }
+        } }
+      };
+    }
+    if (definition.name === "search_code") {
+      return {
+        ...definition,
+        description: "Search literal text (regex=true requires rg), grouped by file with at most 20 matches per file, 100 total by default. Optional glob filters files; contextLines adds 0–5 surrounding lines.",
+        parameters: { ...definition.parameters, properties: {
+          ...definition.parameters.properties, glob: { type: "string" }, contextLines: { type: "integer", minimum: 0, maximum: 5 }
+        } }
+      };
+    }
+    if (definition.name === "list_files") {
+      return { ...definition, description: "List tracked and untracked non-ignored files under path, optionally filtered by pattern. Default maxFiles=200; overflow shows direct files and subdirectory counts. Narrow path or pattern for details." };
+    }
+    return definition;
+  });
+}
+
 function failure(error: string): ToolResult<never> {
   return { ok: false, error, recoverable: true };
 }
 
-function assertCommandPolicy(program: string, args: string[], allowDestructive: boolean): void {
-  const policyError = commandPolicyError(program, args, allowDestructive);
+function assertCommandPolicy(program: string, args: string[], allowDestructive: boolean, sandboxCommands = false): void {
+  const policyError = commandPolicyError(program, args, allowDestructive, sandboxCommands);
   if (policyError) throw new Error(policyError);
 }
 
@@ -317,19 +358,30 @@ async function validateCommandPaths(
   program: string,
   args: string[],
   paths: PathMapper,
-  modelSelected = false
+  modelSelected = false,
+  sandboxCommands = false
 ): Promise<void> {
   const base = path.basename(program).toLowerCase();
-  if (modelSelected && new Set(["rg", "grep", "sed", "cat", "head", "tail", "ls", "find", "git"]).has(base)) {
+  if (modelSelected && !sandboxCommands && new Set(["rg", "grep", "sed", "cat", "head", "tail", "ls", "find", "git"]).has(base)) {
     throw new Error(`Use the dedicated repository tool instead of run_command: ${base}`);
   }
-  if (["node", "python", "python3", "ruby", "php"].includes(base) && ["-e", "-p", "-c"].includes(args[0] ?? "")) {
+  const inlineCode = sandboxCommands && ((["python", "python3"].includes(base) && args[0] === "-c") ||
+    (base === "node" && args[0] === "-e"));
+  if (!inlineCode && ["node", "python", "python3", "ruby", "php"].includes(base) && ["-e", "-p", "-c"].includes(args[0] ?? "")) {
     throw new Error(`Inline code execution is disabled for model tools: ${base} ${args[0]}`);
   }
   const fileConsumers = new Set(["cat", "head", "tail", "node", "python", "python3", "ruby", "php"]);
   for (const [index, arg] of args.entries()) {
     if (arg.includes("\0")) throw new Error("Command arguments must not contain NUL bytes");
-    const optionValue = arg.startsWith("-") && arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : arg;
+    if (inlineCode && index === 1) continue;
+    let optionValue = arg.startsWith("-") && arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : arg;
+    if (sandboxCommands && ["rg", "grep", "sed"].includes(base)) {
+      const attachedFile = /^-[A-Za-z]*?f(.+)$/.exec(arg);
+      if (attachedFile) optionValue = attachedFile[1]!;
+    }
+    if (sandboxCommands && base === "git" && !arg.startsWith("-") && arg.includes(":")) {
+      optionValue = arg.slice(arg.indexOf(":") + 1);
+    }
     const protectedCandidate = optionValue.replace(/[:=,]/g, path.sep);
     if (isProtectedRepoPath(protectedCandidate)) {
       throw new Error(`Protected repository path is not accessible from commands: ${optionValue}`);
@@ -337,6 +389,10 @@ async function validateCommandPaths(
     if ((base === "find" && ["-delete", "-exec", "-execdir", "-ok", "-okdir"].includes(arg)) ||
         (base === "sed" && (arg === "-i" || arg.startsWith("-i") || arg === "--in-place" || arg.startsWith("--in-place="))) ||
         (base === "rg" && (arg === "--pre" || arg.startsWith("--pre=")))) {
+      throw new Error(`Command option is disabled: ${base} ${arg}`);
+    }
+    if (sandboxCommands && base === "sed" && (/^-[nErzsulb]*i/.test(arg) ||
+        (arg.startsWith("--i") && "--in-place".startsWith(arg.split("=")[0]!)))) {
       throw new Error(`Command option is disabled: ${base} ${arg}`);
     }
     if (optionValue.startsWith("-") || optionValue === "") continue;

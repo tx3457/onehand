@@ -78,6 +78,16 @@ npm run demo
 
 The demo prints a prominent disclosure that provider decisions are scripted; it is regression evidence for the execution loop, not a model-quality result.
 
+## Agent profiles
+
+The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support three profiles:
+
+- `baseline`: unchanged tool definitions, prompts, JSON observations, and command policy.
+- `ctx`: windowed, numbered reads; grouped search and directory summaries (E4); compact text observations (E3).
+- `ctx-sandbox`: `ctx` plus inline Python/Node and read-only git/grep/sed commands in an isolated container (E8). Requires a Docker executor; local executors reject it.
+
+Feature flags are validated booleans and default to false. Unknown flags are rejected. The CLI still uses `baseline`.
+
 ## Completion and recovery semantics
 
 1. The model must call `set_plan` before a write, command, or test.
@@ -118,7 +128,7 @@ npm run build
 npm run eval:deterministic
 ```
 
-The local suite has 266 deterministic tests (+6 Docker-gated) in 27 files:
+The local suite has 364 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 34 files:
 
 - A 10-scenario Agent suite, run against temporary Git fixtures. It covers multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry.
 - Provider-contract tests. One checks that DeepSeek `reasoning_content` is sent back on later tool-carrying requests; another checks that no `temperature` is sent in thinking mode; another checks that a reasoning-only, tool-call-free turn replays with string content instead of `content: null`.

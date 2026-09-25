@@ -1,3 +1,4 @@
+import type { AgentFeatures } from "./agent/profile.js";
 import type { Executor } from "./runtime/executor.js";
 
 export type ToolResult<T> =
@@ -96,9 +97,11 @@ export type CommandExecution = {
   timedOut: boolean;
   durationMs: number;
   truncated: boolean;
+  failures?: string[];
 };
 
 export type ToolExecutionContext = {
+  features?: Partial<AgentFeatures>;
   repoRoot: string;
   testCommand?: string;
   timeoutSec: number;

@@ -1,0 +1,296 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`frozen baseline behavior > keeps escaped, indented tool observations 1`] = `
+"{
+  "ok": true,
+  "data": {
+    "path": "hello.py",
+    "content": "def hello():\\r\\n    return \\"你好\\"\\n",
+    "bytes": 38
+  },
+  "truncated": false
+}"
+`;
+
+exports[`frozen baseline behavior > keeps escaped, indented tool observations 2`] = `
+"{
+  "ok": false,
+  "error": "Missing file",
+  "recoverable": false,
+  "code": "environment"
+}"
+`;
+
+exports[`frozen baseline behavior > keeps tool definitions including object key order 1`] = `
+"[
+  {
+    "type": "function",
+    "name": "set_plan",
+    "description": "Create or replace the task plan before modifying the repository.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "update_plan",
+    "description": "Update a plan step after observing repository or tool results.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "stepId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed",
+            "blocked"
+          ]
+        },
+        "evidence": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stepId",
+        "status"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "finish_task",
+    "description": "Finish only after all plan steps are complete and the latest file change is verified.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "list_files",
+    "description": "List repository files under an optional path, skipping generated, secret, and dependency paths.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "maxFiles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "search_code",
+    "description": "Search repository text. The query is literal by default. Set regex=true to use a ripgrep (Rust) regular expression, e.g. (?i) for case-insensitive matching; regex search requires rg.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "maxResults": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "regex": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "read_file",
+    "description": "Read a UTF-8 repository file. Secret and repository-control paths are refused.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "write_file",
+    "description": "Atomically create or replace a UTF-8 repository file after a plan exists.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "replace_text",
+    "description": "Atomically replace one exact text occurrence inside a repository file.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "oldText": {
+          "type": "string"
+        },
+        "newText": {
+          "type": "string"
+        },
+        "occurrence": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "path",
+        "oldText",
+        "newText"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "run_command",
+    "description": "Run one structured local diagnostic/build command without a shell. Network, installs, and mutating Git are refused.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "program": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "timeoutSec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
+        }
+      },
+      "required": [
+        "program",
+        "args"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "run_tests",
+    "description": "Run the configured verification command. Optionally pass targets (test file paths, pytest node ids, or framework test labels such as Django dotted labels) to run a subset.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32
+        },
+        "timeoutSec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "git_status",
+    "description": "Return git status --short.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "git_diff",
+    "description": "Return the current working tree diff.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  }
+]"
+`;

@@ -24,6 +24,7 @@ export type ExecRequest = {
   // Defaults to "head"; model-facing tools opt into "head_tail" so trailing failures stay visible.
   truncation?: "head" | "head_tail";
   displayCommand?: string;
+  captureFailures?: boolean;
 };
 
 // Executors run what they are given; callers apply the command policy first.
@@ -49,7 +50,8 @@ export class LocalExecutor implements Executor {
       killAfterMs: Math.max(1, request.timeoutSec) * 1_000,
       command: request.displayCommand ?? [request.program, ...request.args].join(" "),
       outputLimitBytes: request.outputLimitBytes,
-      truncation: request.truncation
+      truncation: request.truncation,
+      captureFailures: request.captureFailures
     });
   }
 }
@@ -98,7 +100,8 @@ export class DockerExecutor implements Executor {
       deadlineMs: timeoutSec * 1_000,
       command: request.displayCommand ?? [request.program, ...request.args].join(" "),
       outputLimitBytes: request.outputLimitBytes,
-      truncation: request.truncation
+      truncation: request.truncation,
+      captureFailures: request.captureFailures
     });
     if (!result.ok) return environmentFailure(`docker could not be started: ${result.error}`);
     const { exitCode, stdout, stderr } = result.data;
@@ -215,6 +218,7 @@ function spawnAndCapture(options: {
   command: string;
   outputLimitBytes?: number;
   truncation?: "head" | "head_tail";
+  captureFailures?: boolean;
 }): Promise<ToolResult<CommandExecution>> {
   const outputLimitBytes = options.outputLimitBytes ?? DEFAULT_TOOL_OUTPUT_LIMIT;
   const truncation = options.truncation ?? "head";
@@ -252,8 +256,13 @@ function spawnAndCapture(options: {
       // A 124 or 137 well before the deadline is the command's own exit status, not a timeout.
       const timedOut = killed || (options.deadlineMs !== undefined && code !== null && TIMEOUT_EXIT_CODES.has(code) &&
         durationMs >= options.deadlineMs - 250);
-      const stdout = truncateText(Buffer.concat(stdoutChunks).toString("utf8"), outputLimitBytes, truncation);
-      const stderr = truncateText(Buffer.concat(stderrChunks).toString("utf8"), outputLimitBytes, truncation);
+      const fullStdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const fullStderr = Buffer.concat(stderrChunks).toString("utf8");
+      const stdout = truncateText(fullStdout, outputLimitBytes, truncation);
+      const stderr = truncateText(fullStderr, outputLimitBytes, truncation);
+      const truncated = stdout.truncated || stderr.truncated;
+      const failureLines = options.captureFailures ? extractFailureLines(fullStdout, fullStderr) : [];
+      const captured = failureLines.length > 0 ? { failures: failureLines } : {};
       finish({
         ok: true,
         data: {
@@ -263,12 +272,23 @@ function spawnAndCapture(options: {
           stderr: stderr.text,
           timedOut,
           durationMs,
-          truncated: stdout.truncated || stderr.truncated
+          truncated,
+          ...captured
         },
-        truncated: stdout.truncated || stderr.truncated
+        truncated
       });
     });
   });
+}
+
+function extractFailureLines(stdout: string, stderr: string): string[] {
+  const matchesFailure = /^(?:(?:FAILED|ERROR)\b|(?:FAIL|ERROR):\s|E\s{3})/;
+  const failures: string[] = [];
+  for (const line of `${stdout}\n${stderr}`.split(/\r?\n/)) {
+    if (matchesFailure.test(line)) failures.push(line);
+    if (failures.length === 40) break;
+  }
+  return failures;
 }
 
 function safeEnvironment(): NodeJS.ProcessEnv {

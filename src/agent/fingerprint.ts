@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { AgentProfile, PROFILES } from "./profile.js";
+import { AgentProfile, PROFILES, resolveFeatures } from "./profile.js";
 import { buildUserPrompt, SYSTEM_PROMPT } from "./prompt.js";
 import { CACHE_ISOLATION_TEMPLATE, OUTPUT_LIMIT_NUDGE, TEXT_ONLY_NUDGE } from "./runner.js";
-import { TOOL_DEFINITIONS } from "../tools/registry.js";
+import { toolDefinitionsFor } from "../tools/registry.js";
 
 // sha256 of `parts` serialized as JSON with every object's keys sorted by code point, so the
 // digest is stable regardless of property insertion order and independent of locale-aware sorting.
@@ -26,7 +26,7 @@ export function agentBehaviorFingerprint(profile: AgentProfile = PROFILES.baseli
       buildUserPrompt({ ...placeholders, testCommand: "<test-command>", testTargetHint: "<test-targets>" })
     ],
     nudges: { textOnly: TEXT_ONLY_NUDGE, outputLimit: OUTPUT_LIMIT_NUDGE },
-    tools: TOOL_DEFINITIONS,
+    tools: toolDefinitionsFor(resolveFeatures(profile.flags)),
     profile: { name: profile.name, flags: profile.flags }
   });
 }

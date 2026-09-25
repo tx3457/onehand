@@ -553,7 +553,7 @@ describe("strict agent runner", () => {
       testTargetHint: "tests/test_x.py::test_a",
       allowTargetedVerification: true,
       cacheIsolationNonce: "cache-nonce-42",
-      profile: { name: "experiment", flags: { lint: true } }
+      profile: { name: "experiment", flags: { retrieval: true } }
     });
     const hostRoot = await realpath(repo);
     expect(report).toMatchObject({
@@ -570,7 +570,7 @@ describe("strict agent runner", () => {
     const events = (await readFile(path.join(runDir, "trace.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     expect(events.find((event) => event.event === "tool_result" && event.data.name === "read_file").data.ok).toBe(true);
     expect(events.find((event) => event.event === "run_started").data).toMatchObject({
-      repo: hostRoot, displayRoot: "/testbed", executor: "docker", profile: "experiment", profileFlags: { lint: true },
+      repo: hostRoot, displayRoot: "/testbed", executor: "docker", profile: "experiment", profileFlags: { retrieval: true },
       allowTargetedVerification: true
     });
   });

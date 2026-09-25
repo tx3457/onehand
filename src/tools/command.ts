@@ -27,6 +27,15 @@ const PACKAGE_MUTATIONS: Record<string, Set<string>> = {
 const GIT_ALLOWED = new Set([
   "status", "diff", "log", "show", "rev-parse", "ls-files", "grep", "branch"
 ]);
+const SANDBOX_GIT_ALLOWED = new Set([
+  "log", "show", "blame", "grep", "diff", "status", "ls-files", "rev-parse", "cat-file"
+]);
+const SANDBOX_PACKAGE_COMMANDS: Record<string, Set<string>> = {
+  npm: new Set(["ci", "exec", "x"]),
+  pnpm: new Set(["dlx"]),
+  yarn: new Set(["dlx"]),
+  bun: new Set(["x"])
+};
 const localExecutor = new LocalExecutor();
 
 export type StructuredCommand = { program: string; args: string[] };
@@ -153,7 +162,12 @@ export async function runProgramCommand(options: {
   });
 }
 
-export function commandPolicyError(program: string, args: string[], allowDestructive = false): string | null {
+export function commandPolicyError(
+  program: string,
+  args: string[],
+  allowDestructive = false,
+  sandboxCommands = false
+): string | null {
   const base = path.basename(program).toLowerCase();
   const first = args[0]?.toLowerCase() ?? "";
   if (program !== base && (path.isAbsolute(program) || /[\\/]/.test(program))) {
@@ -166,9 +180,43 @@ export function commandPolicyError(program: string, args: string[], allowDestruc
     return allowDestructive ? null : `Destructive command is disabled: ${base}`;
   }
   if (PACKAGE_MUTATIONS[base]?.has(first)) return `Dependency or environment mutation is disabled: ${base} ${first}`;
-  if (base === "git" && !GIT_ALLOWED.has(first)) return `Git mutation or network operation is disabled: git ${first || "<none>"}`;
+  if (sandboxCommands && isSandboxPackageMutation(base, args)) {
+    return `Dependency or environment mutation is disabled in sandbox: ${base} ${args.join(" ")}`;
+  }
+  const gitAllowed = sandboxCommands ? SANDBOX_GIT_ALLOWED : GIT_ALLOWED;
+  if (base === "git" && !gitAllowed.has(first)) return `Git mutation or network operation is disabled: git ${first || "<none>"}`;
+  if (base === "git" && sandboxCommands) {
+    const unsafeOption = args.slice(1).find((arg) =>
+      arg === "--output" || arg.startsWith("--output=") ||
+      arg === "--ext-diff" || arg === "--textconv" || arg === "--filters" ||
+      arg === "--open-files-in-pager" || arg.startsWith("--open-files-in-pager=") ||
+      arg === "-O" || arg.startsWith("-O")
+    );
+    if (unsafeOption) return `Git option is disabled in sandbox: git ${first} ${unsafeOption}`;
+  }
   if (base === "git" && first === "branch" && args.slice(1).some((arg) => !["--list", "--show-current", "-a", "--all"].includes(arg))) {
     return "Git branch mutation is disabled";
+  }
+  return null;
+}
+
+function isSandboxPackageMutation(base: string, args: string[]): boolean {
+  const first = args[0]?.toLowerCase() ?? "";
+  if (["npm", "pnpm", "yarn", "bun", "uv"].includes(base) && first.startsWith("-")) return true;
+  if (SANDBOX_PACKAGE_COMMANDS[base]?.has(first)) return true;
+  if (["python", "python3"].includes(base)) {
+    const pipArgs = pythonPipArgs(args);
+    return pipArgs?.some((arg) => ["install", "uninstall", "download", "wheel"].includes(arg.toLowerCase())) ?? false;
+  }
+  return base === "uv" && first === "run" && args.slice(1).some((arg) => arg === "--with" || arg.startsWith("--with="));
+}
+
+function pythonPipArgs(args: string[]): string[] | null {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "-m") return args[index + 1]?.toLowerCase() === "pip" ? args.slice(index + 2) : null;
+    if (arg === "-c" || arg === "--" || !arg.startsWith("-")) return null;
+    if (["-W", "-X", "--check-hash-based-pycs"].includes(arg)) index += 1;
   }
   return null;
 }

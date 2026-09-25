@@ -5,12 +5,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import { APIConnectionError } from "openai";
 import { PlanController } from "./planning.js";
 import { PersistedRunState, RUN_STATE_VERSION, RunStore, summarizeToolArguments } from "./persistence.js";
-import { AgentProfile, PROFILES } from "./profile.js";
+import { AgentProfile, PROFILES, resolveFeatures } from "./profile.js";
 import { buildUserPrompt, SYSTEM_PROMPT } from "./prompt.js";
 import { createModelProvider } from "../providers/index.js";
 import type { ModelProvider, NormalizedToolCall, ResponsesClient } from "../providers/index.js";
 import { Executor, LocalExecutor, resolveDisplayRoot } from "../runtime/executor.js";
 import { PlanSnapshot, RunReport, RunStatus, RunUsage, StopReason, ToolResult } from "../types.js";
+import { renderToolResult } from "../tools/render.js";
 import { createToolRegistry, serializeToolResult } from "../tools/registry.js";
 import { gitDiff, gitStatus, HOST_DIFF_FLAGS, HostGitOptions, runHostGit } from "../tools/git.js";
 import { normalizeRepoRoot } from "../tools/pathGuard.js";
@@ -112,6 +113,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   if (options.cacheIsolationNonce !== undefined && !CACHE_ISOLATION_NONCE.test(options.cacheIsolationNonce)) {
     throw new Error("cacheIsolationNonce must be 8-64 ASCII letters, digits, or hyphens");
   }
+  const profile = options.profile ?? PROFILES.baseline;
+  const features = resolveFeatures(profile.flags);
   const repoRoot = await normalizeRepoRoot(options.repoPath);
   const executor = options.executor ?? new LocalExecutor();
   const displayRoot = resolveDisplayRoot(executor, repoRoot, options.displayRoot);
@@ -165,13 +168,13 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
 
   const plan = new PlanController(restored?.plan);
   const verificationCommand = options.testCommand ?? await detectTestCommand(repoRoot) ?? "";
-  const profile = options.profile ?? PROFILES.baseline;
   const allowTargetedVerification = options.allowTargetedVerification ?? false;
   const instructions = options.cacheIsolationNonce
     ? `${CACHE_ISOLATION_TEMPLATE.replace("<nonce>", options.cacheIsolationNonce)}\n\n${SYSTEM_PROMPT}`
     : SYSTEM_PROMPT;
   const registry = createToolRegistry({
     repoRoot,
+    features,
     testCommand: verificationCommand,
     timeoutSec: limits.timeoutSec,
     allowDestructive: options.allowDestructive ?? false,
@@ -258,7 +261,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
 
       const postModelBudget = budgetReason(usage, limits, options.signal);
       if (postModelBudget) {
-        appendSkippedToolResults(provider, history, turn.toolCalls, `Run stopped before tool execution: ${postModelBudget}`);
+        appendSkippedToolResults(provider, history, turn.toolCalls, `Run stopped before tool execution: ${postModelBudget}`, features.compactObservations);
         stopReason = postModelBudget;
         status = statusForReason(postModelBudget);
         break;
@@ -291,7 +294,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             provider,
             history,
             turn.toolCalls.slice(callIndex),
-            "Run stopped before tool execution: tool budget exhausted"
+            "Run stopped before tool execution: tool budget exhausted",
+            features.compactObservations
           );
           status = "budget_exhausted";
           stopReason = "tool_budget";
@@ -302,7 +306,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         const toolStarted = Date.now();
         const result = await registry.execute(call.name, call.arguments);
         const durationMs = Date.now() - toolStarted;
-        const observation = serializeToolResult(result);
+        const observation = features.compactObservations ? renderToolResult(call.name, result) : serializeToolResult(result);
         history.push(provider.toolResultItem(call, observation));
         // Hashed so a persisted failureSignatures key never carries raw tool arguments (which can
         // include secrets); only equality is needed for the repeated-failure check below.
@@ -353,7 +357,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           provider,
           checkpointHistory,
           turn.toolCalls.slice(callIndex + 1),
-          "Tool call was not executed before this checkpoint"
+          "Tool call was not executed before this checkpoint",
+          features.compactObservations
         );
         await saveCheckpoint(store, {
           task: options.task,
@@ -377,7 +382,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             provider,
             history,
             turn.toolCalls.slice(callIndex + 1),
-            "Run stopped after explicit finish"
+            "Run stopped after explicit finish",
+            features.compactObservations
           );
           break;
         }
@@ -614,10 +620,13 @@ function appendSkippedToolResults(
   provider: ModelProvider,
   history: unknown[],
   calls: NormalizedToolCall[],
-  error: string
+  error: string,
+  compactObservations = false
 ): void {
   const result: ToolResult<never> = { ok: false, error, recoverable: false };
-  for (const call of calls) history.push(provider.toolResultItem(call, serializeToolResult(result)));
+  for (const call of calls) {
+    history.push(provider.toolResultItem(call, compactObservations ? renderToolResult(call.name, result) : serializeToolResult(result)));
+  }
 }
 
 async function readWorktreeFingerprint(
