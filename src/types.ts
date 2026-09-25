@@ -1,5 +1,7 @@
 import type { AgentFeatures } from "./agent/profile.js";
 import type { Executor } from "./runtime/executor.js";
+import type { AgentEvent } from "./agent/events.js";
+import type { AuthorizationRequest } from "./policy/permissions.js";
 
 export type ToolResult<T> =
   | { ok: true; data: T; truncated?: boolean }
@@ -16,6 +18,7 @@ export type RunStatus =
 
 export type StopReason =
   | "explicit_finish"
+  | "answered"
   | "model_stopped_without_finish"
   | "model_error"
   | "step_budget"
@@ -101,6 +104,10 @@ export type CommandExecution = {
 };
 
 export type ToolExecutionContext = {
+  authorize?: (request: AuthorizationRequest) => Promise<"allow" | "deny">;
+  beforeMutation?: (request: AuthorizationRequest) => Promise<void>;
+  onEvent?: (event: AgentEvent) => void;
+  signal?: AbortSignal;
   features?: Partial<AgentFeatures>;
   repoRoot: string;
   testCommand?: string;

@@ -33,7 +33,7 @@ model updates the plan or chooses the next tool
 latest write verified + all steps complete + finish_task
 ```
 
-A plain assistant message is not a success signal. If the model stops without an accepted `finish_task`, the run is reported as failed.
+For `onehand run` and edit/auto chat, a plain assistant message is not a success signal. If the model stops without an accepted `finish_task`, the run is reported as failed.
 
 ## Quick start
 
@@ -77,6 +77,43 @@ npm run demo
 ```
 
 The demo prints a prominent disclosure that provider decisions are scripted; it is regression evidence for the execution loop, not a model-quality result.
+
+## Interactive use
+
+```bash
+onehand chat --repo /path/to/trusted/repo --mode edit
+onehand chat --repo /path/to/trusted/repo --mode ask \
+  --provider deepseek --model deepseek-v4-pro --thinking enabled --reasoning-effort high
+```
+
+Chat defaults to `edit`. Mode defaults are:
+
+| Mode | Read and plan | Write and execute | Completion |
+| --- | --- | --- | --- |
+| `ask` | Allowed | Denied | Plain answer |
+| `edit` | Allowed | Ask for approval | Verified `finish_task` |
+| `auto` | Allowed | Allowed | Verified `finish_task` |
+
+For an approval, answer `y` (yes), `n` (no), or `a` (always for this session). Always approvals apply to the tool, or to the program for `run_command`. EOF and Ctrl+C at an approval deny that operation. Ctrl+C during a run cancels it and returns to the prompt; press it twice at an empty prompt to exit. `NO_COLOR` and redirected output disable ANSI styling.
+
+Use `/mode ask|edit|auto` to switch modes, `/diff` to inspect the working-tree diff, `/undo` to restore the checkpoint before the last run's first mutation, and `/checkpoints` plus `/rewind <n>` to restore an older checkpoint (1 is newest). Edit and auto runs snapshot before the first write or execution in each model turn. Checkpoints live in `~/.onehand/checkpoints/`, separately from your repository's Git history and index; `ONEHAND_CHECKPOINT_DIR` overrides that location and must stay outside the work tree. Ignored and protected paths are excluded, and files over 5 MB are skipped with a note. Undo leaves excluded files untouched, including directories whose ignored contents would prevent restoring a snapshot file. Empty directories may remain. Use one chat session per repository at a time; checkpoint operations across processes are not serialized.
+
+Root `AGENTS.md` instructions (or `ONEHAND.md` when absent) are loaded at startup, capped at 8 KB, and shown by `/memory`. Each new task also receives the last five inputs and answers, capped at 500 characters each. `/model <id>` changes the model, `/cost` shows session token totals, and `/help` lists commands. Cost is currently reported as tokens: the packaged CLI has no model-price catalog.
+
+Optional `.onehand/config.json` permissions:
+
+```json
+{
+  "permissions": {
+    "allow": ["run_tests", "run_command:npm test"],
+    "deny": ["run_command:npm run deploy"]
+  }
+}
+```
+
+Repeat `--allow <pattern>` and `--deny <pattern>` on `chat` for CLI rules. Denies always win, including over session approvals. Otherwise rules resolve from CLI to project config to `~/.onehand/config.json`, then the mode default. Command patterns compare the exact program and argument prefix; they are not shell globs. Explicit rules override mode defaults for writes and execution. Read and plan tools bypass the approval hook. Invalid config is a startup error. All modes and approvals remain subject to the hard path and command policy.
+
+These features are opt-in library options (`onEvent`, `authorize`, `completion`, `checkpoints`, and `projectInstructions`). `onehand run` and evaluation calls retain their existing completion, prompts, budgets, and tracing behavior.
 
 ## Agent profiles
 
@@ -136,7 +173,7 @@ npm run build
 npm run eval:deterministic
 ```
 
-The local suite has 407 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 40 files:
+The local suite has 456 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 46 files:
 
 - A 10-scenario Agent suite, run against temporary Git fixtures. It covers multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry.
 - Provider-contract tests. One checks that DeepSeek `reasoning_content` is sent back on later tool-carrying requests; another checks that no `temperature` is sent in thinking mode; another checks that a reasoning-only, tool-call-free turn replays with string content instead of `content: null`.

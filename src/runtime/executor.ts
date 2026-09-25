@@ -25,6 +25,7 @@ export type ExecRequest = {
   truncation?: "head" | "head_tail";
   displayCommand?: string;
   captureFailures?: boolean;
+  signal?: AbortSignal;
 };
 
 // Executors run what they are given; callers apply the command policy first.
@@ -51,7 +52,8 @@ export class LocalExecutor implements Executor {
       command: request.displayCommand ?? [request.program, ...request.args].join(" "),
       outputLimitBytes: request.outputLimitBytes,
       truncation: request.truncation,
-      captureFailures: request.captureFailures
+      captureFailures: request.captureFailures,
+      signal: request.signal
     });
   }
 }
@@ -219,7 +221,9 @@ function spawnAndCapture(options: {
   outputLimitBytes?: number;
   truncation?: "head" | "head_tail";
   captureFailures?: boolean;
+  signal?: AbortSignal;
 }): Promise<ToolResult<CommandExecution>> {
+  if (options.signal?.aborted) return Promise.resolve(failure("Command aborted"));
   const outputLimitBytes = options.outputLimitBytes ?? DEFAULT_TOOL_OUTPUT_LIMIT;
   const truncation = options.truncation ?? "head";
   const started = Date.now();
@@ -229,29 +233,45 @@ function spawnAndCapture(options: {
       cwd: options.cwd,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
-      env: options.env
+      env: options.env,
+      detached: options.signal !== undefined
     });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let killed = false;
+    let aborted = false;
     let settled = false;
 
     const finish = (result: ToolResult<CommandExecution>) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abort);
       resolve(result);
     };
+    const terminate = (reason: "abort" | "timeout") => {
+      if (settled || aborted || killed) return;
+      if (reason === "abort") aborted = true;
+      else killed = true;
+      killChild(child.pid, child.kill.bind(child), "SIGTERM", options.signal !== undefined);
+      setTimeout(() => {
+        killChild(child.pid, child.kill.bind(child), "SIGKILL", options.signal !== undefined);
+      }, 1_000).unref();
+    };
+    const abort = () => terminate("abort");
     const timer = setTimeout(() => {
-      killed = true;
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 1_000).unref();
+      terminate("timeout");
     }, options.killAfterMs);
+    options.signal?.addEventListener("abort", abort, { once: true });
 
     child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
     child.on("error", (error) => finish(failure(error.message)));
     child.on("close", (code) => {
+      if (aborted) {
+        finish(failure("Command aborted"));
+        return;
+      }
       const durationMs = Date.now() - started;
       // A 124 or 137 well before the deadline is the command's own exit status, not a timeout.
       const timedOut = killed || (options.deadlineMs !== undefined && code !== null && TIMEOUT_EXIT_CODES.has(code) &&
@@ -279,6 +299,23 @@ function spawnAndCapture(options: {
       });
     });
   });
+}
+
+function killChild(
+  pid: number | undefined,
+  kill: (signal?: NodeJS.Signals | number) => boolean,
+  signal: NodeJS.Signals,
+  processGroup: boolean
+): void {
+  if (processGroup && pid !== undefined && process.platform !== "win32") {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+    }
+  }
+  kill(signal);
 }
 
 function extractFailureLines(stdout: string, stderr: string): string[] {

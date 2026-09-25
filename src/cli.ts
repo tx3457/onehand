@@ -2,6 +2,8 @@
 import { writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import { runAgent } from "./agent/runner.js";
+import { createModelProvider } from "./providers/index.js";
+import { runRepl } from "./repl/index.js";
 import { gitDiff } from "./tools/git.js";
 import { normalizeRepoRoot } from "./tools/pathGuard.js";
 import { runShellCommand } from "./tools/command.js";
@@ -79,6 +81,41 @@ program
     }
 
     process.exitCode = report.status === "success" ? 0 : 1;
+  });
+
+program
+  .command("chat")
+  .requiredOption("--repo <path>", "target repository path")
+  .option("--mode <mode>", "permission mode: ask, edit, or auto", parseMode, "edit")
+  .option("--provider <name>", "model provider: openai or deepseek", parseProvider, "openai")
+  .option("--model <id>", "model id")
+  .option("--base-url <url>", "provider-compatible API base URL")
+  .option("--thinking <mode>", "DeepSeek thinking mode: enabled or disabled", parseThinking, "enabled")
+  .option("--reasoning-effort <level>", "reasoning effort: high or max", parseReasoningEffort, "high")
+  .option("--temperature <n>", "sampling temperature", parseNonNegativeNumber, 0.2)
+  .option("--allow <pattern>", "allow a tool or command pattern", collect, [])
+  .option("--deny <pattern>", "deny a tool or command pattern", collect, [])
+  .action(async (options) => {
+    const apiKey = options.provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error(`${options.provider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY"} is required for onehand chat`);
+
+    await runRepl({
+      repoPath: options.repo,
+      mode: options.mode,
+      provider: options.provider,
+      model: options.model,
+      baseURL: options.baseUrl,
+      apiKey,
+      thinking: options.thinking,
+      reasoningEffort: options.reasoningEffort,
+      temperature: options.temperature,
+      cliRules: { allow: options.allow, deny: options.deny },
+      providerFactory: (providerOptions) => createModelProvider({
+        provider: providerOptions.provider,
+        apiKey: providerOptions.apiKey,
+        baseURL: providerOptions.baseURL
+      })
+    });
   });
 
 program
@@ -188,4 +225,15 @@ function parseThinking(value: string): "enabled" | "disabled" {
 function parseReasoningEffort(value: string): "high" | "max" {
   if (value !== "high" && value !== "max") throw new Error(`Expected high or max, got ${value}`);
   return value;
+}
+
+function parseMode(value: string): "ask" | "edit" | "auto" {
+  if (value !== "ask" && value !== "edit" && value !== "auto") {
+    throw new Error(`Expected ask, edit, or auto, got ${value}`);
+  }
+  return value;
+}
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }

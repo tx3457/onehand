@@ -4,6 +4,9 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { APIConnectionError } from "openai";
 import { PlanController } from "./planning.js";
+import { AgentEvent, emitAgentEvent, summarizeEventArguments, summarizeToolOutcome, toolSucceeded } from "./events.js";
+import type { AuthorizationRequest, PermissionMode } from "../policy/permissions.js";
+import { CheckpointStore } from "../runtime/checkpoints.js";
 import { PersistedRunState, RUN_STATE_VERSION, RunStore, summarizeToolArguments } from "./persistence.js";
 import { AgentProfile, PROFILES, resolveFeatures } from "./profile.js";
 import { buildUserPrompt, effectiveSystemPrompt } from "./prompt.js";
@@ -24,6 +27,12 @@ export type { ResponsesClient } from "../providers/index.js";
 export type RunAgentOptions = {
   task: string;
   repoPath: string;
+  mode?: PermissionMode;
+  authorize?: (request: AuthorizationRequest) => Promise<"allow" | "deny">;
+  completion?: "finish_task" | "answer";
+  checkpoints?: boolean | CheckpointStore;
+  projectInstructions?: string;
+  onEvent?: (event: AgentEvent) => void;
   testCommand?: string;
   providerName?: "openai" | "deepseek";
   provider?: ModelProvider;
@@ -175,6 +184,16 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   const instructions = options.cacheIsolationNonce
     ? `${CACHE_ISOLATION_TEMPLATE.replace("<nonce>", options.cacheIsolationNonce)}\n\n${systemPrompt}`
     : systemPrompt;
+  let observerTimeMs = 0;
+  const emit = (event: AgentEvent) => {
+    if (!options.onEvent) return;
+    const before = Date.now();
+    emitAgentEvent(options.onEvent, event);
+    observerTimeMs += Date.now() - before;
+  };
+  const checkpoints = options.checkpoints === true ? new CheckpointStore(repoRoot) : options.checkpoints || undefined;
+  let checkpointTaken = false;
+  let checkpointRound = 0;
   const registry = createToolRegistry({
     repoRoot,
     features,
@@ -186,15 +205,30 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     executor,
     displayRoot,
     trustedTestCommand: options.trustedTestCommand,
-    allowTargetedVerification
+    allowTargetedVerification,
+    authorize: options.authorize,
+    onEvent: options.onEvent ? emit : undefined,
+    signal: options.mode !== undefined ? options.signal : undefined,
+    beforeMutation: checkpoints ? async () => {
+      if (options.signal?.aborted) throw new Error("Run cancelled before checkpoint");
+      if (!checkpointTaken) {
+        const checkpoint = await checkpoints.snapshot(`Before round ${checkpointRound}: ${options.task.slice(0, 100)}`);
+        checkpointTaken = true;
+        emit({ type: "checkpoint_created", id: checkpoint.id, label: checkpoint.label });
+      }
+      if (options.signal?.aborted) throw new Error("Run cancelled before mutation");
+    } : undefined
   });
   if (restored?.records) registry.records.push(...restored.records);
-  const history = restored?.history ?? provider.initialHistory(buildUserPrompt({
+  let userPrompt = buildUserPrompt({
     task: options.task,
     repo: displayRoot,
     testCommand: verificationCommand,
     testTargetHint: options.testTargetHint
-  }));
+  });
+  if (options.projectInstructions !== undefined) userPrompt += `\n\nProject instructions (from AGENTS.md):\n${options.projectInstructions}`;
+  if (options.completion === "answer") userPrompt += "\n\nFor this run, answer the user's question with a plain assistant message when ready. A text-only answer completes this run; finish_task is not required.";
+  const history = restored?.history ?? provider.initialHistory(userPrompt);
   const usage: RunUsage = { ...(restored?.usage ?? DEFAULT_USAGE) };
   const failureSignatures = new Map(Object.entries(restored?.failureSignatures ?? {}));
   let finalMessage = restored?.finalMessage ?? "";
@@ -224,9 +258,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   }
 
   let shouldStop = false;
+  emit({ type: "run_started", task: options.task, mode: options.mode ?? "auto" });
   try {
     for (; usage.modelRounds < limits.maxSteps && !shouldStop;) {
-      usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted);
+      usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
       const preflight = budgetReason(usage, limits, options.signal);
       if (preflight) {
         stopReason = preflight;
@@ -285,13 +320,20 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
       }, {
         ...limits,
         modelTimeoutMs: Math.max(1, Math.min(limits.modelTimeoutMs, limits.maxWallTimeMs - usage.wallTimeMs))
-      }, store);
+      }, store, options.mode !== undefined);
       const latencyMs = Date.now() - turnStarted;
       usage.modelRounds += 1;
       addUsage(usage, turn.usage);
       previousPromptTokens = turn.usage.inputTokens;
       history.push(...turn.historyItems);
       if (turn.message) finalMessage = turn.message;
+      checkpointTaken = false;
+      checkpointRound = usage.modelRounds;
+      if (options.onEvent) emit({
+        type: "model_turn", round: usage.modelRounds, usage: turn.usage,
+        ...(turn.message ? { text: turn.message } : {}),
+        toolCalls: turn.toolCalls.map((call) => ({ name: call.name, argsSummary: summarizeEventArguments(call.arguments) }))
+      });
       await store?.trace("model_turn", {
         round: usage.modelRounds,
         toolCallNames: turn.toolCalls.map((call) => call.name),
@@ -309,7 +351,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         break;
       }
       if (turn.toolCalls.length === 0) {
-        if (enforcePlanning) {
+        if (options.completion === "answer") {
+          status = "success";
+          stopReason = "answered";
+        } else if (enforcePlanning) {
           const outputLimited = turn.finishReason === "length";
           const nudge = textOnlyNudges < limits.maxTextOnlyNudges;
           await store?.trace("text_only_turn", { round: usage.modelRounds, finishReason: turn.finishReason, nudge });
@@ -331,6 +376,13 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
 
       for (let callIndex = 0; callIndex < turn.toolCalls.length; callIndex += 1) {
         const call = turn.toolCalls[callIndex]!;
+        if (options.mode !== undefined && options.signal?.aborted) {
+          appendSkippedToolResults(provider, history, turn.toolCalls.slice(callIndex), "Run cancelled before tool execution", features.compactObservations);
+          status = "cancelled";
+          stopReason = "cancelled";
+          shouldStop = true;
+          break;
+        }
         if (usage.toolCalls >= limits.maxToolCalls) {
           appendSkippedToolResults(
             provider,
@@ -346,8 +398,15 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         }
         usage.toolCalls += 1;
         const toolStarted = Date.now();
+        const observerTimeAtToolStart = observerTimeMs;
+        const previousPlan = options.onEvent ? plan.snapshot() : undefined;
+        if (options.onEvent) emit({ type: "tool_started", name: call.name, argsSummary: summarizeEventArguments(call.arguments) });
         const result = await registry.execute(call.name, call.arguments);
-        const durationMs = Date.now() - toolStarted;
+        const durationMs = Date.now() - toolStarted - (observerTimeMs - observerTimeAtToolStart);
+        if (options.onEvent) emit({
+          type: "tool_finished", name: call.name, ok: toolSucceeded(result), durationMs,
+          summary: summarizeToolOutcome(call.name, call.arguments, result, durationMs)
+        });
         const observation = features.compactObservations ? renderToolResult(call.name, result) : serializeToolResult(result);
         history.push(provider.toolResultItem(call, observation));
         // Hashed so a persisted failureSignatures key never carries raw tool arguments (which can
@@ -357,6 +416,12 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           const failures = (failureSignatures.get(signature) ?? 0) + 1;
           failureSignatures.set(signature, failures);
           if (failures >= 2) plan.requireReplan();
+        }
+        if (previousPlan) {
+          const currentPlan = plan.snapshot();
+          if (previousPlan.revision !== currentPlan.revision || previousPlan.needsReplan !== currentPlan.needsReplan) {
+            emit({ type: "plan_updated", plan: currentPlan });
+          }
         }
         await store?.trace("tool_result", {
           round: usage.modelRounds,
@@ -393,7 +458,12 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           finalMessage = "The active plan is blocked.";
           shouldStop = true;
         }
-        usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted);
+        if (options.mode !== undefined && options.signal?.aborted) {
+          status = "cancelled";
+          stopReason = "cancelled";
+          shouldStop = true;
+        }
+        usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
         const checkpointHistory = [...history];
         appendSkippedToolResults(
           provider,
@@ -425,7 +495,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             provider,
             history,
             turn.toolCalls.slice(callIndex + 1),
-            "Run stopped after explicit finish",
+            options.mode !== undefined && stopReason === "cancelled" ? "Run cancelled before tool execution" : "Run stopped after explicit finish",
             features.compactObservations
           );
           break;
@@ -437,7 +507,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
       stopReason = "step_budget";
     }
   } catch (error) {
-    const elapsedWallTime = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted);
+    const elapsedWallTime = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
     stopReason = options.signal?.aborted
       ? "cancelled"
       : elapsedWallTime >= limits.maxWallTimeMs
@@ -451,7 +521,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     });
   }
 
-  usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted);
+  usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
   const statusResult = await gitStatus(repoRoot, git.timeoutSec, git.isolatedConfig);
   const diffResult = await gitDiff(repoRoot, git.timeoutSec, git.isolatedConfig);
   const tests = registry.records.filter((record) => record.type === "test").map((record) => ({
@@ -483,6 +553,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     startedAt
   }, git);
   await store?.trace("run_finished", { status, stopReason, usage, plan: compactPlan(plan.snapshot()) });
+  emit({ type: "run_finished", status, stopReason, usage, finalMessage });
 
   return {
     status,
@@ -506,7 +577,8 @@ async function completeWithRetry(
   provider: ModelProvider,
   request: Parameters<ModelProvider["complete"]>[0],
   limits: { modelTimeoutMs: number; maxApiAttempts: number; retryDelayMs: number },
-  store?: RunStore
+  store?: RunStore,
+  abortImmediately = false
 ) {
   let lastError: unknown;
   const deadline = Date.now() + limits.modelTimeoutMs;
@@ -521,6 +593,7 @@ async function completeWithRetry(
       return await provider.complete({ ...request, signal: controller.signal });
     } catch (error) {
       lastError = error;
+      if (abortImmediately && request.signal?.aborted) throw new ModelCallError(error);
       const retryable = isRetryableModelError(error, controller.signal.aborted);
       // Enough to tell a provider outage from a bad request afterwards: the status, the network error code, whether
       // no response arrived at all, and whether this call's own deadline (not the caller) aborted it.
@@ -536,7 +609,7 @@ async function completeWithRetry(
       if (!retryable || attempt >= limits.maxApiAttempts) throw new ModelCallError(error);
       const retryDelay = Math.min(limits.retryDelayMs * 2 ** (attempt - 1), Math.max(0, deadline - Date.now()));
       if (retryDelay <= 0) throw new ModelCallError(error);
-      await delay(retryDelay);
+      await delay(retryDelay, undefined, abortImmediately ? { signal: request.signal } : undefined);
     } finally {
       clearTimeout(timer);
       request.signal?.removeEventListener("abort", abortFromCaller);

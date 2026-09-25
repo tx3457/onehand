@@ -8,6 +8,8 @@ Security fixes target the latest commit on `main`.
 
 OneHand limits model-selected file and command operations to a configured repository, but it is **not an operating-system sandbox**. An allowed test, compiler, package script, or repository program can itself execute arbitrary code with the permissions of the current user.
 
+Interactive ask/edit/auto modes and approvals are UX guardrails on top of the existing hard policy, not a sandbox. CLI, project, user, and session permission rules cannot override protected paths or command restrictions. Checkpoints use a separate shadow Git repository and exclude protected and ignored files; they are a recovery aid, not a complete backup.
+
 Use OneHand only on repositories you trust. For third-party or adversarial code, place the repository and OneHand process in a disposable container or virtual machine with no secrets, no host mounts, and restricted network access.
 
 ## Default controls

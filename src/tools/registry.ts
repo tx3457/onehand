@@ -1,4 +1,6 @@
 import { AgentFeatures, resolveFeatures } from "../agent/profile.js";
+import { emitAgentEvent, summarizeEventArguments } from "../agent/events.js";
+import { classifyToolRisk } from "../policy/permissions.js";
 import { PlanController, PlanUpdate, StepEvidence } from "../agent/planning.js";
 import { LocalExecutor, PathMapper, resolveDisplayRoot } from "../runtime/executor.js";
 import { ToolExecutionContext, ToolResult } from "../types.js";
@@ -120,6 +122,16 @@ export function createToolRegistry(
         }
       }
 
+      const request = context.authorize || context.beforeMutation ? { name, args, risk: classifyToolRisk(name, args) } : undefined;
+      if (context.authorize && request && request.risk !== "read" && request.risk !== "plan") {
+        const decision = await context.authorize(structuredClone(request));
+        emitAgentEvent(context.onEvent, {
+          type: "permission_decision", tool: name, argsSummary: summarizeEventArguments(args), decision, source: "authorize"
+        });
+        if (decision !== "allow") return failure(`Denied by permission policy: ${name} ${summarizeEventArguments(args)}. Choose another approach.`);
+      }
+      if (context.signal?.aborted) return failure("Run cancelled before tool execution");
+
       // A model-visible path such as /testbed/x.py names the host checkout before any path check.
       const fileArgs = typeof args.path === "string" ? { ...args, path: paths.toHost(args.path) } : args;
       let result: ToolResult<unknown>;
@@ -136,6 +148,10 @@ export function createToolRegistry(
         case "write_file": {
           let before: string | undefined;
           try {
+            if (context.beforeMutation && request) {
+              await resolveSafeRepoPath(repoRoot, fileArgs.path as string);
+              await context.beforeMutation(request);
+            }
             before = features.leanPlanning ? await fileContentDigest(repoRoot, fileArgs.path as string) : undefined;
           } catch (error) {
             result = failure(error instanceof Error ? error.message : String(error));
@@ -150,6 +166,10 @@ export function createToolRegistry(
         case "replace_text": {
           let before: string | undefined;
           try {
+            if (context.beforeMutation && request) {
+              await resolveSafeRepoPath(repoRoot, fileArgs.path as string);
+              await context.beforeMutation(request);
+            }
             before = features.leanPlanning ? await fileContentDigest(repoRoot, fileArgs.path as string) : undefined;
           } catch (error) {
             result = failure(error instanceof Error ? error.message : String(error));
@@ -169,6 +189,7 @@ export function createToolRegistry(
             cwd = await resolveSafeRepoPath(repoRoot, paths.toHost((args.cwd as string | undefined) ?? "."));
             await validateCommandPaths(repoRoot, cwd, program, commandArgs, paths, true, features.sandboxCommands);
             assertCommandPolicy(program, commandArgs, context.allowDestructive, features.sandboxCommands);
+            if (request?.risk === "exec") await context.beforeMutation?.(request);
           } catch (error) {
             result = failure(error instanceof Error ? error.message : String(error));
             break;
@@ -181,7 +202,8 @@ export function createToolRegistry(
             args: commandArgs,
             cwd,
             timeoutSec: (args.timeoutSec as number | undefined) ?? context.timeoutSec,
-            truncation: "head_tail"
+            truncation: "head_tail",
+            ...(context.signal ? { signal: context.signal } : {})
           });
           if (execution.ok) {
             records.push({ type: "command", command: execution.data.command, exitCode: execution.data.exitCode });
@@ -217,6 +239,7 @@ export function createToolRegistry(
               assertCommandPolicy(parsed.program, parsed.args, context.allowDestructive);
             }
             for (const target of targets) await validateTestTarget(repoRoot, target, paths);
+            if (request) await context.beforeMutation?.(request);
           } catch (error) {
             result = failure(error instanceof Error ? error.message : String(error));
             break;
@@ -231,7 +254,8 @@ export function createToolRegistry(
             timeoutSec: (args.timeoutSec as number | undefined) ?? context.timeoutSec,
             truncation: "head_tail",
             displayCommand,
-            ...(features.compactObservations ? { captureFailures: true } : {})
+            ...(features.compactObservations ? { captureFailures: true } : {}),
+            ...(context.signal ? { signal: context.signal } : {})
           });
           let contentTrackingUnavailable = false;
           if (features.leanPlanning) {
