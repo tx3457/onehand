@@ -62,13 +62,14 @@ export async function gitStatus(
 export async function gitDiff(
   repoRoot: string,
   timeoutSec: number,
-  isolatedConfig = false
+  isolatedConfig = false,
+  base?: "HEAD"
 ): Promise<ToolResult<{ diff: string }>> {
   const repoCheck = await ensureGitRepository(repoRoot, timeoutSec, isolatedConfig);
   if (!repoCheck.ok) return repoCheck;
 
   const result = await runHostGit(repoRoot, [
-    "diff", ...HOST_DIFF_FLAGS, "--", ".",
+    "diff", ...HOST_DIFF_FLAGS, ...(base ? [base] : []), "--", ".",
     ":(exclude).env", ":(exclude)**/.env",
     ":(exclude).env.*", ":(exclude)**/.env.*",
     ":(exclude)*.pem", ":(exclude)**/*.pem",

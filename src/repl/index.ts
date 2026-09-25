@@ -2,8 +2,10 @@ import type { Readable, Writable } from "node:stream";
 import { homedir } from "node:os";
 import { loadProjectInstructions } from "../agent/projectMemory.js";
 import { runAgent, type RunAgentOptions } from "../agent/runner.js";
+import { runSubagent } from "../agent/subagents.js";
 import { summarizeEventArguments, type AgentEvent } from "../agent/events.js";
 import type { ModelProvider } from "../providers/index.js";
+import { loadMcpConfig, McpManager } from "../mcp/index.js";
 import { CheckpointStore } from "../runtime/checkpoints.js";
 import {
   loadPermissionConfig,
@@ -14,7 +16,7 @@ import {
 } from "../policy/permissions.js";
 import { gitDiff } from "../tools/git.js";
 import { normalizeRepoRoot } from "../tools/pathGuard.js";
-import type { RunReport, RunUsage } from "../types.js";
+import type { PlanSnapshot, RunReport, RunUsage } from "../types.js";
 import { ReplInput } from "./input.js";
 import { ReplRenderer, systemClock, type Clock } from "./renderer.js";
 
@@ -44,7 +46,7 @@ type MemoryEntry = { input: string; finalMessage: string };
 
 const HELP = [
   "/help", "/mode <ask|edit|auto>", "/diff", "/undo", "/rewind <n>",
-  "/checkpoints", "/cost", "/model <id>", "/memory", "/exit"
+  "/checkpoints", "/cost", "/model <id>", "/memory", "/mcp", "/review", "/exit"
 ].join(" · ");
 
 export async function runRepl(options: RunReplOptions): Promise<void> {
@@ -54,6 +56,7 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
   const repoRoot = await normalizeRepoRoot(options.repoPath);
   const projectInstructions = await loadProjectInstructions(repoRoot);
   const config = await loadPermissionConfig(repoRoot, options.userHome ?? homedir());
+  const mcpConfig = await loadMcpConfig(repoRoot, options.userHome ?? homedir());
   const permissions = new PermissionEngine({
     mode: options.mode ?? "edit",
     cliRules: options.cliRules,
@@ -63,6 +66,7 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
   const checkpoints = new CheckpointStore(repoRoot);
   const reader = new ReplInput(inputStream, output, interactive && process.env.NO_COLOR === undefined);
   const renderer = new ReplRenderer(output, options.clock ?? systemClock, { interactive });
+  const mcp = new McpManager({ warn: (message) => renderer.message(message) });
   const run = options.runAgentFn ?? runAgent;
   const memory: MemoryEntry[] = [];
   const totals = emptyUsage();
@@ -70,9 +74,12 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
   let lastRunCheckpoint: string | undefined;
   let firstEmptyInterrupt = false;
   let activeAbort: (() => void) | undefined;
+  let lastTask = "Review the current repository changes for correctness.";
+  let lastPlan: PlanSnapshot | undefined;
 
   renderer.message(`OneHand chat · ${permissions.mode} mode · ${repoRoot}`);
   try {
+    await mcp.connect(mcpConfig);
     while (true) {
       const event = await reader.read("onehand> ", output);
       if (event.type === "eof") break;
@@ -118,6 +125,8 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
           persistence: false,
           mode: permissions.mode,
           authorize,
+          extraTools: mcp,
+          interactiveTools: ["review_changes"],
           completion: permissions.mode === "ask" ? "answer" : "finish_task",
           checkpoints: permissions.mode === "ask" ? false : checkpoints,
           projectInstructions,
@@ -128,6 +137,8 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
           }
         });
         lastRunCheckpoint = checkpointForRun;
+        lastTask = value;
+        lastPlan = report.plan;
         addUsage(totals, report.usage);
         renderer.finish(report);
         memory.push({ input: value, finalMessage: report.finalMessage });
@@ -145,6 +156,7 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
   } finally {
     renderer.stop();
     reader.close();
+    await mcp.close();
   }
 
   async function authorize(request: AuthorizationRequest): Promise<"allow" | "deny"> {
@@ -220,8 +232,38 @@ export async function runRepl(options: RunReplOptions): Promise<void> {
         return false;
       }
       case "/cost":
-        renderer.message(`${totals.modelRounds} rounds · ${totals.toolCalls} tool calls · ${totals.totalTokens} tokens`);
+        renderer.message(`${totals.modelRounds} rounds${totals.subagentRounds ? ` + ${totals.subagentRounds} subagent rounds` : ""} · ${totals.toolCalls} tool calls · ${totals.totalTokens} tokens`);
         return false;
+      case "/mcp":
+        renderer.message(mcp.servers.length
+          ? mcp.servers.map((server) => `${server.name}: ${server.tools.length ? server.tools.join(", ") : "(no tools)"}`).join("\n")
+          : "No MCP servers connected.");
+        return false;
+      case "/review": {
+        const controller = new AbortController();
+        activeAbort = () => controller.abort();
+        reader.onInterrupt(activeAbort);
+        renderer.startRun();
+        try {
+          const provider = await options.providerFactory({ provider: options.provider, model, baseURL: options.baseURL, apiKey: options.apiKey });
+          const report = await runSubagent({
+            preset: "review", task: lastTask, plan: lastPlan,
+            parent: {
+              repoPath: repoRoot, provider, model,
+              thinking: options.thinking, reasoningEffort: options.reasoningEffort, temperature: options.temperature,
+              mode: permissions.mode, authorize, projectInstructions,
+              persistence: false, signal: controller.signal, onEvent: renderer.handle
+            }
+          });
+          addUsage(totals, report.usage);
+          renderer.finish(report);
+        } finally {
+          renderer.stop();
+          activeAbort = undefined;
+          reader.onInterrupt(undefined);
+        }
+        return false;
+      }
       case "/model":
         if (!args.length) renderer.message(`Model: ${model ?? "provider default"}`);
         else {
@@ -273,6 +315,7 @@ function emptyUsage(): RunUsage {
 function addUsage(total: RunUsage, usage?: RunUsage): void {
   if (!usage) return;
   total.modelRounds += usage.modelRounds;
+  if (usage.subagentRounds) total.subagentRounds = (total.subagentRounds ?? 0) + usage.subagentRounds;
   total.toolCalls += usage.toolCalls;
   total.inputTokens += usage.inputTokens;
   total.outputTokens += usage.outputTokens;

@@ -9,22 +9,71 @@ export type JsonSchema = {
   maximum?: number;
   minItems?: number;
   maxItems?: number;
+  // MCP servers may provide JSON Schema keywords that the small built-in validator
+  // does not implement. They are passed through to the model and detected at runtime.
+  [keyword: string]: unknown;
 };
 
 export function parseAndValidateArgs(
   rawArgs: string | Record<string, unknown>,
   schema: JsonSchema
 ): Record<string, unknown> {
-  let value: unknown = rawArgs;
-  if (typeof rawArgs === "string") {
-    try {
-      value = rawArgs.trim() === "" ? {} : JSON.parse(rawArgs);
-    } catch (error) {
-      throw new Error(`Tool arguments are not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
+  const value = parseRawArgs(rawArgs);
   validateValue(value, schema, "arguments");
   return value as Record<string, unknown>;
+}
+
+export function parseAndValidateExtraArgs(
+  rawArgs: string | Record<string, unknown>,
+  schema: unknown
+): Record<string, unknown> {
+  const value = parseRawArgs(rawArgs);
+  validatePlainObject(value, "arguments");
+  if (supportsSchema(schema)) validateValue(value, schema, "arguments");
+  return value;
+}
+
+function parseRawArgs(rawArgs: string | Record<string, unknown>): unknown {
+  if (typeof rawArgs !== "string") return rawArgs;
+  try {
+    return rawArgs.trim() === "" ? {} : JSON.parse(rawArgs);
+  } catch (error) {
+    throw new Error(`Tool arguments are not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function supportsSchema(value: unknown): value is JsonSchema {
+  if (!isPlainObject(value)) return false;
+  const schema = value as Record<string, unknown>;
+  const supported = new Set([
+    "type", "properties", "required", "additionalProperties", "items", "enum",
+    "minimum", "maximum", "minItems", "maxItems"
+  ]);
+  if (Object.keys(schema).some((key) => !supported.has(key))) return false;
+  if (!new Set(["object", "string", "number", "integer", "array", "boolean"]).has(schema.type as string)) return false;
+  if (schema.properties !== undefined && (
+    !isPlainObject(schema.properties) || Object.values(schema.properties).some((child) => !supportsSchema(child))
+  )) return false;
+  if (schema.required !== undefined && (!Array.isArray(schema.required) || !schema.required.every((item) => typeof item === "string"))) return false;
+  if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== "boolean") return false;
+  if (schema.items !== undefined && !supportsSchema(schema.items)) return false;
+  if (schema.enum !== undefined && !Array.isArray(schema.enum)) return false;
+  for (const key of ["minimum", "maximum", "minItems", "maxItems"] as const) {
+    if (schema[key] !== undefined && (typeof schema[key] !== "number" || !Number.isFinite(schema[key]))) return false;
+  }
+  return true;
+}
+
+function validatePlainObject(value: unknown, path: string): asserts value is Record<string, unknown> {
+  if (!isPlainObject(value)) {
+    throw new Error(`${path} must be a plain object`);
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function validateValue(value: unknown, schema: JsonSchema, path: string): void {

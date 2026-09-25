@@ -115,19 +115,56 @@ Repeat `--allow <pattern>` and `--deny <pattern>` on `chat` for CLI rules. Denie
 
 These features are opt-in library options (`onEvent`, `authorize`, `completion`, `checkpoints`, and `projectInstructions`). `onehand run` and evaluation calls retain their existing completion, prompts, budgets, and tracing behavior.
 
+## MCP servers
+
+Chat loads `mcpServers` from `~/.onehand/config.json` and the repository's `.onehand/config.json`. Project entries replace user entries with the same name. Servers start once per chat session and close when it exits. For example:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "command": "node",
+      "args": ["/absolute/path/to/docs-server.mjs"],
+      "env": { "DOCS_ROOT": "/absolute/path/to/docs" },
+      "cwd": "/absolute/path/to/docs",
+      "enabled": true
+    }
+  },
+  "permissions": {
+    "allow": ["mcp__docs__search"],
+    "deny": ["mcp__docs__delete"]
+  }
+}
+```
+
+`enabled` defaults to true; use false to disable an entry. The child inherits the SDK's safe environment plus the entry's explicit `env`, without inheriting OneHand's provider API keys. Only configure server commands you trust: the command starts at session startup, before tool-call approvals.
+
+`/mcp` lists connected servers and their tools. Names use `mcp__<server>__<tool>`, sanitize unsupported characters, and fit within 64 characters; duplicate exposed names are warned about and dropped. Startup/discovery has a 10-second timeout per server; a failed server is skipped. Calls have a 60-second timeout and receive Ctrl+C cancellation, text output uses the normal output limit, and non-text blocks appear as omission notices.
+
+In chat, MCP calls bypass planning but require permission. Their defaults are **deny in ask**, **ask in edit**, and **deny in auto**. Allow a single tool with `mcp__docs__search` or a server's tools with `mcp__docs__*`; deny rules still win. The library accepts an opt-in `extraTools: { definitions, execute }` adapter, which `McpManager` implements; supply `authorize` to enforce library-call permissions. Existing runs do not load MCP configuration automatically.
+
+## Sub-agents
+
+The `exploreSubagent` feature adds `explore({ question })`. It runs a separate, read-only agent and returns a report of at most 300 words with file paths and line numbers. Its history stays separate; the parent receives only its report. The `full-explore` profile enables this feature on top of `full` for the E9 evaluation arm.
+
+Chat also exposes `review_changes({})`, and `/review` runs it directly using the latest task, tracked diff against `HEAD` (including staged changes), a status list for inspecting untracked files, and last plan. The diff/status context is capped at 30 KB. The reviewer reports concrete defects with file and line references or says `no blocking issues`. Review is enabled by `interactiveTools: ["review_changes"]` and is never included in evaluation profiles.
+
+Both presets can list, search and read files, inspect Git status/diff, and use only read-only inspection commands when the parent enables `sandboxCommands`. They cannot write, run tests, manage plans, call MCP tools or start another sub-agent. They share the parent's remaining steps, tool calls, input/output tokens and wall time, capped further at 20 steps, 30 tool calls and 400,000 input tokens per child. Token and tool usage is included in parent totals; child rounds are reported separately as `subagentRounds` and consume the shared step budget. They inherit provider/model settings and use the parent's cache-isolation nonce with a `-sub<n>` suffix. Trace and REPL events mark when each child starts and finishes.
+
 ## Agent profiles
 
-The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support five profiles:
+The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support six named profiles:
 
 - `baseline`: unchanged tool definitions, prompts, JSON observations, and command policy.
 - `ctx`: windowed, numbered reads; grouped search and directory summaries (E4); compact text observations (E3).
 - `ctx-sandbox`: `ctx` plus inline Python/Node and read-only git/grep/sed commands in an isolated container (E8). Requires a Docker executor; local executors reject it.
 - `ctx-sandbox-mask`: `ctx-sandbox` plus deterministic observation masking (E5). When the previous response reports more than 48,000 prompt tokens, retain the newest complete tool rounds within a 48 KiB serialized-history budget (at least 2, at most 10). Assistant text, reasoning, and tool results all count toward that budget; the minimum 2 rounds may exceed it. Apply a masking block only if the full history, including its replacement context note, shrinks by at least 32 KiB. Otherwise history and note placement remain untouched, preserving the prompt-cache prefix. A real event refreshes the plan/modified-files note, checkpoints masked history, and traces `bytesRemoved`, `bytesKept`, and `keptRounds`.
 - `full`: `ctx-sandbox-mask` plus lean planning (E1): atomic batched `update_plan`, transactional `finish_task stepEvidence`, pre-plan tests and read-only inspection, and content-based mutation tracking.
+- `full-explore`: `full` plus the isolated, budget-sharing `explore` sub-agent (E9).
 
 Feature flags are validated booleans and default to false. Unknown flags are rejected. The CLI still uses `baseline`.
 
-The three existing profiles retain their original prompts, tool schemas, and behavior fingerprints. Masking makes no extra model calls and does not discount token budgets. `full` hashes its effective lean prompt and tool schemas in its behavior fingerprint.
+All five existing profiles retain their original prompts, tool schemas, and behavior fingerprints. `full-explore` has a distinct fingerprint and is included in normal `PROFILES` enumeration. Masking makes no extra model calls and does not discount token budgets. `full` hashes its effective lean prompt and tool schemas in its behavior fingerprint.
 
 ## Completion and recovery semantics
 
@@ -173,7 +210,7 @@ npm run build
 npm run eval:deterministic
 ```
 
-The local suite has 456 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 46 files:
+The local suite has 496 self-contained deterministic tests, 2 local-dataset checks, and 6 Docker-gated tests in 52 files:
 
 - A 10-scenario Agent suite, run against temporary Git fixtures. It covers multi-step completion, observation-driven recovery, repeated failures and replanning, false-success prevention, budgets, safety boundaries, and bounded provider retry.
 - Provider-contract tests. One checks that DeepSeek `reasoning_content` is sent back on later tool-carrying requests; another checks that no `temperature` is sent in thinking mode; another checks that a reasoning-only, tool-call-free turn replays with string content instead of `content: null`.
@@ -194,6 +231,7 @@ The local suite has 456 self-contained deterministic tests, 2 local-dataset chec
   - `/testbed` paths in every file tool and in `run_command`;
   - `run_tests` target validation and the operator-trusted test command.
 - Fingerprint tests for the pure `fingerprintOf` hash and its sensitivity to any single input change, and for the agent-profile part of the behavior fingerprint.
+- MCP tests use the official SDK with in-memory and local stdio transports, including discovery, collisions, configuration, permissions, errors, timeouts and scripted runner integration. Sub-agent tests cover isolation, shared budgets, read-only tools, depth limits and REPL review.
 - Phase 2 profile tests pin all three existing fingerprints, exercise masking for DeepSeek and OpenAI histories with trace/checkpoint/resume checks, and cover lean plan transactions, inspection gates, and real-content mutation tracking. A scripted `full` run exercises both features together without Docker or network access.
 - Evaluation-harness tests for: the cost cap surviving a resume for a thrown run's worst-case charge; a mis-keyed row being substituted instead of crashing a later "Duplicate" check; the audited copy in `invalid-results.jsonl` staying redacted; and the source fingerprint changing when any tracked file changes.
 - An offline integration test that drives the real evaluation `runOne` path with a scripted DeepSeek client, including that the trace's frozen budgets match the manifest exactly.

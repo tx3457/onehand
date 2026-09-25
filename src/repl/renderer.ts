@@ -57,6 +57,16 @@ export class ReplRenderer {
         this.renderPlan(event.plan);
         this.restartThinking();
         break;
+      case "subagent_started":
+        this.stopThinking();
+        this.write(`${event.preset} started`);
+        this.restartThinking();
+        break;
+      case "subagent_finished":
+        this.stopThinking();
+        this.write(`${event.preset} finished · ${event.status} · ${event.usage.modelRounds} rounds · ${event.usage.totalTokens} tokens`);
+        this.restartThinking();
+        break;
       case "run_finished":
         this.stopThinking();
         if (event.finalMessage) {
@@ -74,7 +84,7 @@ export class ReplRenderer {
     if (report.finalMessage && !this.finalRendered) this.write(report.finalMessage);
     const usage = report.usage;
     const details = usage
-      ? `${usage.modelRounds} rounds · ${usage.totalTokens} tokens`
+      ? `${usage.modelRounds} rounds${usage.subagentRounds ? ` + ${usage.subagentRounds} subagent rounds` : ""} · ${usage.totalTokens} tokens`
       : "usage unavailable";
     this.write(this.paint("2", `${report.status} · ${details}`));
   }

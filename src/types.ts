@@ -43,6 +43,7 @@ export type RunUsage = TokenUsage & {
   modelRounds: number;
   toolCalls: number;
   wallTimeMs: number;
+  subagentRounds?: number;
 };
 
 export type PlanStepStatus = "pending" | "in_progress" | "completed" | "blocked";

@@ -151,6 +151,8 @@ Do not commit environment files or any raw artifact that contains a secret. Revi
 
 ### Running a SWE-bench evaluation
 
+Available named profiles are `baseline`, `ctx`, `ctx-sandbox`, `ctx-sandbox-mask`, `full`, and `full-explore`. The `full-explore` E9 arm adds a read-only explore sub-agent to `full`, shares the parent's budgets, and has its own behavior fingerprint. Select it explicitly with `--variants full,full-explore`; the five existing profiles and their fingerprints are unchanged. `review_changes` is an interactive REPL tool and is not included in any evaluation profile.
+
 ```bash
 # One-time setup, outside this repository: the swebench 5.0.2 harness in ~/.onehand/swebench/.venv.
 # Freeze the splits. They are already frozen in eval/swebench/splits.json; don't regenerate them for an evaluation in progress.

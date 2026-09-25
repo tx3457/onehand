@@ -10,13 +10,14 @@ import { CheckpointStore } from "../runtime/checkpoints.js";
 import { PersistedRunState, RUN_STATE_VERSION, RunStore, summarizeToolArguments } from "./persistence.js";
 import { AgentProfile, PROFILES, resolveFeatures } from "./profile.js";
 import { buildUserPrompt, effectiveSystemPrompt } from "./prompt.js";
+import { REVIEW_CHANGES_TOOL_DEFINITION, runSubagent } from "./subagents.js";
 import { createModelProvider } from "../providers/index.js";
 import type { ModelProvider, NormalizedToolCall, ResponsesClient } from "../providers/index.js";
 import { maskProviderHistory } from "../providers/historyMasking.js";
 import { Executor, LocalExecutor, resolveDisplayRoot } from "../runtime/executor.js";
 import { PlanSnapshot, RunReport, RunStatus, RunUsage, StopReason, ToolResult } from "../types.js";
 import { renderToolResult } from "../tools/render.js";
-import { createToolRegistry, serializeToolResult } from "../tools/registry.js";
+import { createToolRegistry, serializeToolResult, type ExtraTools } from "../tools/registry.js";
 import { gitDiff, gitStatus, HOST_DIFF_FLAGS, HostGitOptions, runHostGit } from "../tools/git.js";
 import { normalizeRepoRoot } from "../tools/pathGuard.js";
 import { isProtectedRepoPath, resolveInsideRepo, shouldSkipDir } from "../tools/pathGuard.js";
@@ -70,6 +71,12 @@ export type RunAgentOptions = {
   // Fills CACHE_ISOLATION_TEMPLATE ahead of the system prompt so runs do not share a provider prompt cache.
   cacheIsolationNonce?: string;
   profile?: AgentProfile;
+  extraTools?: ExtraTools;
+  interactiveTools?: ("review_changes")[];
+  // Internal controls used by the depth-one read-only sub-agent runner.
+  subagentDepth?: number;
+  readOnlyTools?: boolean;
+  systemPrompt?: string;
 };
 
 const DEFAULT_USAGE: RunUsage = {
@@ -121,7 +128,7 @@ export class RuntimeFailure extends Error {
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
-  if (options.cacheIsolationNonce !== undefined && !CACHE_ISOLATION_NONCE.test(options.cacheIsolationNonce)) {
+  if (options.cacheIsolationNonce !== undefined && !validCacheIsolationNonce(options.cacheIsolationNonce, options.subagentDepth)) {
     throw new Error("cacheIsolationNonce must be 8-64 ASCII letters, digits, or hyphens");
   }
   const profile = options.profile ?? PROFILES.baseline;
@@ -180,7 +187,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   const plan = new PlanController(restored?.plan);
   const verificationCommand = options.testCommand ?? await detectTestCommand(repoRoot) ?? "";
   const allowTargetedVerification = options.allowTargetedVerification ?? false;
-  const systemPrompt = effectiveSystemPrompt(features);
+  const systemPrompt = options.systemPrompt ?? effectiveSystemPrompt(features);
   const instructions = options.cacheIsolationNonce
     ? `${CACHE_ISOLATION_TEMPLATE.replace("<nonce>", options.cacheIsolationNonce)}\n\n${systemPrompt}`
     : systemPrompt;
@@ -194,6 +201,48 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   const checkpoints = options.checkpoints === true ? new CheckpointStore(repoRoot) : options.checkpoints || undefined;
   let checkpointTaken = false;
   let checkpointRound = 0;
+  const usage: RunUsage = { ...(restored?.usage ?? DEFAULT_USAGE) };
+  let subagentIndex = 0;
+  const interactiveReview = options.subagentDepth === undefined && options.interactiveTools?.includes("review_changes") === true;
+  const delegatedDefinitions = [
+    ...(options.extraTools?.definitions ?? []),
+    ...(interactiveReview ? [REVIEW_CHANGES_TOOL_DEFINITION] : [])
+  ];
+  const supportsSubagents = options.subagentDepth === undefined && (features.exploreSubagent === true || interactiveReview);
+  const delegatedTools: ExtraTools | undefined = options.extraTools || supportsSubagents ? {
+    definitions: delegatedDefinitions,
+    execute: async (name, args, context) => {
+      if ((name === "explore" && features.exploreSubagent === true) || (name === "review_changes" && interactiveReview)) {
+        subagentIndex += 1;
+        usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
+        const report = await runSubagent({
+          preset: name === "explore" ? "explore" : "review",
+          ...(name === "explore" ? { question: args.question as string } : {}),
+          task: options.task,
+          plan: plan.snapshot(),
+          parent: {
+            ...options,
+            repoPath: repoRoot,
+            provider,
+            model,
+            executor,
+            displayRoot,
+            onEvent: options.onEvent ? emit : undefined
+          },
+          parentUsage: usage,
+          parentLimits: limits,
+          subagentIndex,
+          trace: store ? (event, data) => store!.trace(event, data) : undefined
+        });
+        addSubagentUsage(usage, report.usage);
+        return report.status === "success"
+          ? { ok: true, data: report.finalMessage }
+          : { ok: false, error: `Sub-agent stopped (${report.stopReason ?? report.status}): ${report.finalMessage || "no report"}`, recoverable: true };
+      }
+      if (options.extraTools) return options.extraTools.execute(name, args, context);
+      return { ok: false, error: `Unknown tool: ${name}`, recoverable: true };
+    }
+  } : undefined;
   const registry = createToolRegistry({
     repoRoot,
     features,
@@ -207,6 +256,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     trustedTestCommand: options.trustedTestCommand,
     allowTargetedVerification,
     authorize: options.authorize,
+    extraTools: delegatedTools,
+    readOnly: options.readOnlyTools,
     onEvent: options.onEvent ? emit : undefined,
     signal: options.mode !== undefined ? options.signal : undefined,
     beforeMutation: checkpoints ? async () => {
@@ -229,7 +280,6 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   if (options.projectInstructions !== undefined) userPrompt += `\n\nProject instructions (from AGENTS.md):\n${options.projectInstructions}`;
   if (options.completion === "answer") userPrompt += "\n\nFor this run, answer the user's question with a plain assistant message when ready. A text-only answer completes this run; finish_task is not required.";
   const history = restored?.history ?? provider.initialHistory(userPrompt);
-  const usage: RunUsage = { ...(restored?.usage ?? DEFAULT_USAGE) };
   const failureSignatures = new Map(Object.entries(restored?.failureSignatures ?? {}));
   let finalMessage = restored?.finalMessage ?? "";
   let textOnlyNudges = restored?.textOnlyNudges ?? 0;
@@ -260,7 +310,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   let shouldStop = false;
   emit({ type: "run_started", task: options.task, mode: options.mode ?? "auto" });
   try {
-    for (; usage.modelRounds < limits.maxSteps && !shouldStop;) {
+    for (; usedRounds(usage) < limits.maxSteps && !shouldStop;) {
       usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
       const preflight = budgetReason(usage, limits, options.signal);
       if (preflight) {
@@ -464,6 +514,16 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           shouldStop = true;
         }
         usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
+        if (!shouldStop && usage.subagentRounds !== undefined) {
+          const sharedBudget = usedRounds(usage) >= limits.maxSteps
+            ? "step_budget"
+            : budgetReason(usage, limits, options.signal);
+          if (sharedBudget) {
+            status = statusForReason(sharedBudget);
+            stopReason = sharedBudget;
+            shouldStop = true;
+          }
+        }
         const checkpointHistory = [...history];
         appendSkippedToolResults(
           provider,
@@ -495,14 +555,18 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             provider,
             history,
             turn.toolCalls.slice(callIndex + 1),
-            options.mode !== undefined && stopReason === "cancelled" ? "Run cancelled before tool execution" : "Run stopped after explicit finish",
+            options.mode !== undefined && stopReason === "cancelled"
+              ? "Run cancelled before tool execution"
+              : status === "budget_exhausted"
+                ? `Run stopped before tool execution: ${stopReason}`
+                : "Run stopped after explicit finish",
             features.compactObservations
           );
           break;
         }
       }
     }
-    if (!shouldStop && usage.modelRounds >= limits.maxSteps) {
+    if (!shouldStop && usedRounds(usage) >= limits.maxSteps) {
       status = "budget_exhausted";
       stopReason = "step_budget";
     }
@@ -643,6 +707,24 @@ function addUsage(target: RunUsage, value: RunUsage | any): void {
   target.cacheMissInputTokens += value.cacheMissInputTokens ?? 0;
   target.totalTokens += value.totalTokens ?? 0;
   target.reasoningTokens = (target.reasoningTokens ?? 0) + (value.reasoningTokens ?? 0);
+}
+
+function addSubagentUsage(target: RunUsage, value: RunUsage | undefined): void {
+  if (!value) return;
+  target.subagentRounds = (target.subagentRounds ?? 0) + value.modelRounds + (value.subagentRounds ?? 0);
+  target.toolCalls += value.toolCalls;
+  addUsage(target, value);
+}
+
+function usedRounds(usage: RunUsage): number {
+  return usage.modelRounds + (usage.subagentRounds ?? 0);
+}
+
+function validCacheIsolationNonce(value: string, subagentDepth: number | undefined): boolean {
+  if (CACHE_ISOLATION_NONCE.test(value)) return true;
+  if (subagentDepth !== 1) return false;
+  const suffix = value.match(/-sub[1-9][0-9]*$/)?.[0];
+  return suffix !== undefined && CACHE_ISOLATION_NONCE.test(value.slice(0, -suffix.length));
 }
 
 export function categorizeToolFailure(name: string, result: ToolResult<unknown>): string | undefined {

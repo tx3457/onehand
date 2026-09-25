@@ -13,7 +13,7 @@ import { commandPolicyError, isReadOnlyInspectionCommand, parseCommand, quoteArg
 import { listFiles, readRepoFile, replaceText, searchCode, writeRepoFile } from "./fileTools.js";
 import { gitDiff, gitStatus, repositoryContentDigest } from "./git.js";
 import { isProtectedRepoPath, resolveSafeRepoPath } from "./pathGuard.js";
-import { JsonSchema, parseAndValidateArgs } from "./schema.js";
+import { JsonSchema, parseAndValidateArgs, parseAndValidateExtraArgs } from "./schema.js";
 import { detectTestCommand } from "./testCommand.js";
 
 const MAX_TEST_TARGET_LENGTH = 512;
@@ -34,6 +34,11 @@ export type ToolDefinition = {
   parameters: JsonSchema;
 };
 
+export type ExtraTools = {
+  definitions: ToolDefinition[];
+  execute(name: string, args: Record<string, unknown>, context?: { signal?: AbortSignal }): Promise<ToolResult<unknown>>;
+};
+
 export type ToolRegistry = {
   definitions: ToolDefinition[];
   execute(name: string, rawArgs: string | Record<string, unknown>): Promise<ToolResult<unknown>>;
@@ -43,10 +48,23 @@ export type ToolRegistry = {
 };
 
 export function createToolRegistry(
-  context: ToolExecutionContext & { plan?: PlanController }
+  context: ToolExecutionContext & { plan?: PlanController; extraTools?: ExtraTools; readOnly?: boolean }
 ): ToolRegistry {
   const features = resolveFeatures(context.features);
-  const definitions = toolDefinitionsFor(features);
+  const profileDefinitions = toolDefinitionsFor(features);
+  const baseDefinitions = context.readOnly
+    ? profileDefinitions.filter(({ name }) => READ_ONLY_TOOLS.has(name) || (name === "run_command" && features.sandboxCommands))
+    : profileDefinitions;
+  const extraDefinitions = context.readOnly ? [] : (context.extraTools?.definitions ?? []);
+  const definitionNames = new Set(baseDefinitions.map(({ name }) => name));
+  for (const definition of extraDefinitions) {
+    if (definitionNames.has(definition.name)) {
+      throw new Error(`Extra tool name ${JSON.stringify(definition.name)} collides with a registered tool`);
+    }
+    definitionNames.add(definition.name);
+  }
+  const definitions = extraDefinitions.length === 0 ? baseDefinitions : [...baseDefinitions, ...extraDefinitions];
+  const extraNames = new Set(extraDefinitions.map(({ name }) => name));
   const records: ToolExecutionRecord[] = [];
   const plan = context.plan ?? new PlanController();
   // A lexical and a symlinked root name the same checkout; every check and mapping uses its realpath.
@@ -83,12 +101,20 @@ export function createToolRegistry(
     async execute(name, rawArgs) {
       const definition = definitions.find((candidate) => candidate.name === name);
       if (!definition) return failure(`Unknown tool: ${name}`);
+      const delegatedTool = extraNames.has(name) || (name === "explore" && context.extraTools !== undefined);
       let args: Record<string, unknown>;
       try {
-        args = parseAndValidateArgs(rawArgs, definition.parameters);
+        args = delegatedTool
+          ? parseAndValidateExtraArgs(rawArgs, definition.parameters)
+          : parseAndValidateArgs(rawArgs, definition.parameters);
       } catch (error) {
         return failure(error instanceof Error ? error.message : String(error));
       }
+
+      if (context.readOnly && name === "run_command" && !isReadOnlyInspectionCommand(
+        args.program as string,
+        (args.args as string[] | undefined) ?? []
+      )) return failure("Read-only sub-agents may run only read-only inspection commands");
 
       if (name === "set_plan") return plan.setPlan(args.steps as string[]);
       if (name === "update_plan") {
@@ -123,7 +149,7 @@ export function createToolRegistry(
       }
 
       const request = context.authorize || context.beforeMutation ? { name, args, risk: classifyToolRisk(name, args) } : undefined;
-      if (context.authorize && request && request.risk !== "read" && request.risk !== "plan") {
+      if (context.authorize && request && (delegatedTool || (request.risk !== "read" && request.risk !== "plan"))) {
         const decision = await context.authorize(structuredClone(request));
         emitAgentEvent(context.onEvent, {
           type: "permission_decision", tool: name, argsSummary: summarizeEventArguments(args), decision, source: "authorize"
@@ -290,7 +316,15 @@ export function createToolRegistry(
           result = await gitDiff(repoRoot, context.timeoutSec, isolatedGit);
           break;
         default:
-          result = failure(`Unknown tool: ${name}`);
+          if (!delegatedTool || !context.extraTools) {
+            result = failure(`Unknown tool: ${name}`);
+            break;
+          }
+          try {
+            result = await context.extraTools.execute(name, args, { signal: context.signal });
+          } catch (error) {
+            result = failure(error instanceof Error ? error.message : String(error));
+          }
       }
       if (paths.hostRoot === paths.displayRoot) return result;
       if (!result.ok) return { ...result, error: scrub(result.error) as string };
@@ -310,7 +344,20 @@ function appendNote<T extends object>(data: T, note: string): T & { note: string
 }
 
 const MUTATING_OR_ACTION_TOOLS = new Set(["write_file", "replace_text", "run_command", "run_tests"]);
+const READ_ONLY_TOOLS = new Set(["list_files", "search_code", "read_file", "git_status", "git_diff"]);
 const emptyObject: JsonSchema = { type: "object", properties: {}, additionalProperties: false };
+
+const EXPLORE_TOOL_DEFINITION: ToolDefinition = {
+  type: "function",
+  name: "explore",
+  description: "Ask a read-only sub-agent to investigate a repository question and return a concise report.",
+  parameters: {
+    type: "object",
+    properties: { question: { type: "string" } },
+    required: ["question"],
+    additionalProperties: false
+  }
+};
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -391,8 +438,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 
 export function toolDefinitionsFor(flags: Partial<AgentFeatures> = {}): ToolDefinition[] {
   const features = resolveFeatures(flags);
-  if (!features.retrieval && !features.sandboxCommands && !features.leanPlanning) return TOOL_DEFINITIONS;
-  return TOOL_DEFINITIONS.map((definition) => {
+  if (!features.retrieval && !features.sandboxCommands && !features.leanPlanning && !features.exploreSubagent) return TOOL_DEFINITIONS;
+  const definitions: ToolDefinition[] = TOOL_DEFINITIONS.map((definition): ToolDefinition => {
     if (features.leanPlanning && definition.name === "update_plan") {
       return {
         ...definition,
@@ -469,6 +516,7 @@ export function toolDefinitionsFor(flags: Partial<AgentFeatures> = {}): ToolDefi
     }
     return definition;
   });
+  return features.exploreSubagent ? [...definitions, EXPLORE_TOOL_DEFINITION] : definitions;
 }
 
 async function fileContentDigest(repoRoot: string, file: string): Promise<string> {

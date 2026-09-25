@@ -9,6 +9,8 @@ export type AgentEvent =
   | { type: "tool_finished"; name: string; ok: boolean; durationMs: number; summary: string }
   | { type: "plan_updated"; plan: PlanSnapshot }
   | { type: "checkpoint_created"; id: string; label: string }
+  | { type: "subagent_started"; preset: "explore" | "review"; question?: string }
+  | { type: "subagent_finished"; preset: "explore" | "review"; usage: RunUsage; status: RunStatus }
   | { type: "permission_decision"; tool: string; argsSummary: string; decision: "allow" | "deny"; source: string }
   | { type: "run_finished"; status: RunStatus; stopReason: StopReason; usage: RunUsage; finalMessage: string };
 

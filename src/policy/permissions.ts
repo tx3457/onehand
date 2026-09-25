@@ -4,7 +4,7 @@ import path from "node:path";
 import { isReadOnlyInspectionCommand } from "../tools/command.js";
 
 export type PermissionMode = "ask" | "edit" | "auto";
-export type ToolRisk = "read" | "write" | "exec" | "plan";
+export type ToolRisk = "read" | "write" | "exec" | "plan" | "mcp";
 
 export type AuthorizationRequest = {
   name: string;
@@ -36,11 +36,12 @@ export type PermissionEngineOptions = {
   userRules?: PermissionRules;
 };
 
-const READ_TOOLS = new Set(["list_files", "search_code", "read_file", "git_status", "git_diff"]);
+const READ_TOOLS = new Set(["list_files", "search_code", "read_file", "git_status", "git_diff", "explore", "review_changes"]);
 const WRITE_TOOLS = new Set(["write_file", "replace_text"]);
 const PLAN_TOOLS = new Set(["set_plan", "update_plan", "finish_task"]);
 
 export function classifyToolRisk(name: string, args: Record<string, unknown>): ToolRisk {
+  if (name.startsWith("mcp__")) return "mcp";
   if (READ_TOOLS.has(name)) return "read";
   if (WRITE_TOOLS.has(name)) return "write";
   if (PLAN_TOOLS.has(name)) return "plan";
@@ -113,12 +114,16 @@ export async function loadPermissionConfig(repoRoot: string, userHome = homedir(
 
 function modeDecision(mode: PermissionMode, risk: ToolRisk): PermissionDecision["decision"] {
   if (risk === "read" || risk === "plan") return "allow";
+  if (risk === "mcp") return mode === "edit" ? "ask" : "deny";
   if (mode === "auto") return "allow";
   return mode === "edit" ? "ask" : "deny";
 }
 
 function matchesPattern(pattern: string, request: AuthorizationRequest): boolean {
   if (pattern === request.name) return true;
+  if (pattern.endsWith("__*") && pattern.startsWith("mcp__") && request.name.startsWith(pattern.slice(0, -1))) {
+    return true;
+  }
   if (request.name !== "run_command" || !pattern.startsWith("run_command:")) return false;
 
   const tokens = pattern.slice("run_command:".length).split(/\s+/).filter(Boolean);
@@ -182,6 +187,7 @@ function validateRules(value: Record<string, unknown>, label: "project" | "user"
 
 function validPattern(pattern: string): boolean {
   if (/^[A-Za-z0-9_]+$/.test(pattern)) return true;
+  if (/^mcp__[A-Za-z0-9_-]+__(?:[A-Za-z0-9_-]+|\*)$/.test(pattern)) return true;
   return /^run_command:[^\s:]+(?: [^\s]+)*$/.test(pattern);
 }
 
