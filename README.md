@@ -4,6 +4,22 @@ OneHand is a local coding-agent CLI for repository-scoped maintenance tasks. It 
 
 The model can inspect code, make bounded file edits, run local verification commands, and decide the next action from the previous tool observation. Editing runs succeed only after every plan step is complete and a passing verification follows the latest write; ask-mode chat can finish with a plain answer.
 
+## Results (SWE-bench Verified, pre-registered)
+
+Measured with the same model (`deepseek-flash`) and budgets in one pre-registered final window, graded by the official harness. See the full report, with deviations and limitations, in [docs/benchmarks/2026-09-26](docs/benchmarks/2026-09-26/README.md).
+
+| dataset | resolved: baseline → `ctx-sandbox` | cost per run (95% CI) |
+|---|---|---|
+| Verified Mini (dev set), 50 tasks × 3 runs | 72.0% → 72.0% (non-inferior at a 10 pp margin) | **−20.7%** (−28.0% to −13.1%) |
+| Holdout (never used in development), 46 tasks × 1 run | 73.9% → 78.3% (non-inferior at a 10 pp margin) | **−16.1%** (−28.1% to −2.5%) |
+
+`ctx-sandbox` combines three measured changes. Each is backed by a mechanism metric:
+- Line-numbered, byte-bounded file windows and grouped search: tokens per `read_file` fall from about 2.7–3.1k to about 1.0k.
+- Compact plain-text observations.
+- A sandbox-aware command policy: the `run_command` failure rate falls by 41–48% (45.4% → 23.6% on Mini, 34.8% → 20.6% on the holdout).
+
+The resolved rate did not detectably change. Development-stage experiments that did not pay off (observation masking was 32% more expensive; lean planning and an explore sub-agent gave no gain) are reported in the same document. For reference, mini-swe-agent 2.4.6, run with the same model under matching limits, resolved 72% on Mini at $0.059 per run. This is descriptive only, not a controlled comparison.
+
 ## What is implemented
 
 - OpenAI Responses and DeepSeek providers, schema-validated repository tools, verified completion, and step/token/time/retry budgets.
@@ -295,11 +311,11 @@ The checked-in harness uses synthetic, repository-local coding tasks so it can t
 
 The checked-in task definitions and exact acceptance assertions are public. "Hidden" refers only to runtime isolation from the model-visible fixture, not to a private or contamination-resistant benchmark. Any future result on this set is a project diagnostic; broader resume claims require a separate unpublished holdout or an independent evaluator.
 
-The harness fails closed when runs are missing or the cost cap is reached. Results will be published only from the pre-registered final evaluation. This README makes no performance claims. See [eval/README.md](eval/README.md).
+The harness fails closed when runs are missing or the cost cap is reached. Published numbers come only from the pre-registered final window in [docs/benchmarks/2026-09-26](docs/benchmarks/2026-09-26/README.md). See [eval/README.md](eval/README.md) for the protocol.
 
 ## Project status
 
-Phase 3 polish prepares the CLI, chat, and artifact viewer for code freeze. Local use defaults to `ctx` (E4+E3); `ctx-sandbox` adds Docker-only E8, while E5/E1/E9 remain explicit experiment flags. Checkpoints, project instructions, MCP, sub-agents, the Web UI, and the SWE-bench harness are implemented. The local CLI does not isolate repository programs, and there is no distributed execution or long-term semantic memory. Results will be published only from the pre-registered final evaluation.
+The final evaluation window is complete (see Results above). Local use defaults to `ctx` (E4+E3). `ctx-sandbox` adds the Docker-only E8. E5, E1 and E9 remain explicit experiment flags that were not adopted. Checkpoints, project instructions, MCP, sub-agents, the Web UI, and the SWE-bench harness are implemented. The local CLI does not isolate repository programs, and there is no distributed execution or long-term semantic memory.
 
 ## License
 

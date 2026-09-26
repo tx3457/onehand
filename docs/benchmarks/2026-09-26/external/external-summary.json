@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "kind": "swebench_external_summary",
+  "reference": "external descriptive reference",
+  "label": "mini-swe-agent-2.4.6",
+  "split": "dev",
+  "model": "deepseek-flash",
+  "priceSnapshot": {
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "checkedAt": "2026-09-25",
+    "model": "deepseek-flash",
+    "basis": "peak",
+    "peakHoursUtc": "01:00-04:00 and 06:00-10:00 UTC, Monday-Friday, excluding Chinese public holidays",
+    "inputCacheHitPerMillionUsd": 0.006,
+    "inputCacheMissPerMillionUsd": 0.3,
+    "outputPerMillionUsd": 1.2
+  },
+  "complete": true,
+  "plannedRuns": 50,
+  "observedRuns": 50,
+  "resolved": {
+    "count": 36,
+    "rate": 0.72,
+    "ci95": [
+      0.6,
+      0.84
+    ]
+  },
+  "meanCostUsd": 0.05919572519999998,
+  "medianCostUsd": 0.05972136,
+  "meanModelRounds": 49.48,
+  "meanInputTokens": 2121871.82,
+  "meanCacheHitInputTokens": 2084339.2,
+  "meanCacheMissInputTokens": 37532.62,
+  "meanOutputTokens": 29524.92,
+  "meanReasoningTokens": 22885.78,
+  "costPerResolvedUsd": 0.08221628499999997,
+  "totalCostUsd": 2.959786259999999,
+  "exitStatusCounts": {
+    "LimitsExceeded": 12,
+    "Submitted": 38
+  },
+  "gradingOutcomeCounts": {
+    "empty_patch": 12,
+    "scored": 38
+  },
+  "setup": {
+    "toolInterface": "bash tool",
+    "configGroups": [
+      {
+        "stepLimit": 80,
+        "costLimitUsd": 1.08,
+        "networkDisabled": true,
+        "runs": 50
+      }
+    ]
+  }
+}

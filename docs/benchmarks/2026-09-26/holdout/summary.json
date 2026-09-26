@@ -1,0 +1,285 @@
+{
+  "schemaVersion": 1,
+  "kind": "swebench_summary",
+  "note": "A/B claims come only from `npm run eval:compare` on paired variants. A single-variant run is a diagnostic of one configuration, not a comparison.",
+  "evaluationId": "swebench-holdout-2026-09-26T11-54-05-087Z-142320",
+  "split": "holdout",
+  "model": "deepseek-flash",
+  "variants": [
+    "baseline",
+    "ctx-sandbox"
+  ],
+  "complete": true,
+  "stopReason": null,
+  "completeness": {
+    "flags": [],
+    "plannedRuns": 92,
+    "observedRuns": 92,
+    "scoredRuns": 92,
+    "missingRuns": 0,
+    "unplannedRuns": 0,
+    "capReached": false,
+    "circuitOpen": false,
+    "invalidResultRuns": 0,
+    "harnessErrorRuns": 0,
+    "gradingErrorRuns": 0,
+    "providerErrorRuns": 0,
+    "environmentFailureRuns": 1,
+    "patchCausedRuns": {
+      "test_timeout": 0,
+      "oom": 0,
+      "tests_errored": 0
+    }
+  },
+  "scoredRuns": 92,
+  "resolved": {
+    "runs": 92,
+    "resolved": 70,
+    "rate": 0.7608695652173914,
+    "ci95": [
+      0.6413043478260869,
+      0.8695652173913043
+    ]
+  },
+  "byRepo": {
+    "astropy/astropy": {
+      "runs": 6,
+      "resolved": 6,
+      "rate": 1,
+      "ci95": [
+        1,
+        1
+      ]
+    },
+    "django/django": {
+      "runs": 46,
+      "resolved": 32,
+      "rate": 0.6956521739130435,
+      "ci95": [
+        0.5217391304347826,
+        0.8478260869565217
+      ]
+    },
+    "matplotlib/matplotlib": {
+      "runs": 2,
+      "resolved": 2,
+      "rate": 1,
+      "ci95": [
+        1,
+        1
+      ]
+    },
+    "pydata/xarray": {
+      "runs": 4,
+      "resolved": 1,
+      "rate": 0.25,
+      "ci95": [
+        0,
+        0.5
+      ]
+    },
+    "pylint-dev/pylint": {
+      "runs": 2,
+      "resolved": 2,
+      "rate": 1,
+      "ci95": [
+        1,
+        1
+      ]
+    },
+    "pytest-dev/pytest": {
+      "runs": 4,
+      "resolved": 2,
+      "rate": 0.5,
+      "ci95": [
+        0,
+        1
+      ]
+    },
+    "scikit-learn/scikit-learn": {
+      "runs": 8,
+      "resolved": 8,
+      "rate": 1,
+      "ci95": [
+        1,
+        1
+      ]
+    },
+    "sphinx-doc/sphinx": {
+      "runs": 4,
+      "resolved": 4,
+      "rate": 1,
+      "ci95": [
+        1,
+        1
+      ]
+    },
+    "sympy/sympy": {
+      "runs": 16,
+      "resolved": 13,
+      "rate": 0.8125,
+      "ci95": [
+        0.5625,
+        1
+      ]
+    }
+  },
+  "byDifficulty": {
+    "1-4 hours": {
+      "runs": 8,
+      "resolved": 4,
+      "rate": 0.5,
+      "ci95": [
+        0,
+        1
+      ]
+    },
+    "15 min - 1 hour": {
+      "runs": 44,
+      "resolved": 32,
+      "rate": 0.7272727272727273,
+      "ci95": [
+        0.5681818181818182,
+        0.8863636363636364
+      ]
+    },
+    "<15 min fix": {
+      "runs": 38,
+      "resolved": 34,
+      "rate": 0.8947368421052632,
+      "ci95": [
+        0.7631578947368421,
+        1
+      ]
+    },
+    ">4 hours": {
+      "runs": 2,
+      "resolved": 0,
+      "rate": 0,
+      "ci95": [
+        0,
+        0
+      ]
+    }
+  },
+  "falseSuccess": {
+    "runs": 92,
+    "count": 11,
+    "rate": 0.11956521739130435
+  },
+  "claims": {
+    "claimedResolved": 54,
+    "claimedUnresolved": 11,
+    "unclaimedResolved": 16,
+    "unclaimedUnresolved": 11
+  },
+  "patches": {
+    "emptyPatchRuns": 3,
+    "emptyPatchRate": 0.03260869565217391,
+    "applyFailures": 0
+  },
+  "efficiency": {
+    "modelRounds": {
+      "mean": 41.28260869565217,
+      "p50": 37,
+      "p95": 74,
+      "max": 80
+    },
+    "toolCalls": {
+      "mean": 58.119565217391305,
+      "p50": 54,
+      "p95": 101,
+      "max": 123
+    },
+    "inputTokens": {
+      "mean": 1557788.1847826086,
+      "p50": 1089175,
+      "p95": 3077965,
+      "max": 3094936
+    },
+    "outputTokens": {
+      "mean": 24702.41304347826,
+      "p50": 18027,
+      "p95": 67779,
+      "max": 89785
+    },
+    "reasoningTokens": {
+      "mean": 18236.956521739132,
+      "p50": 12377,
+      "p95": 58586,
+      "max": 78847
+    },
+    "estimatedCostUsd": {
+      "mean": 0.05193145682608698,
+      "p50": 0.043334844,
+      "p95": 0.114969924,
+      "max": 0.144462096
+    },
+    "durationMs": {
+      "mean": 236399.1847826087,
+      "p50": 167750,
+      "p95": 752095,
+      "max": 905607
+    },
+    "cacheHitRate": 0.9717420908782507
+  },
+  "totals": {
+    "inputTokens": 143316513,
+    "outputTokens": 2272622,
+    "cacheHitInputTokens": 139266688,
+    "cacheMissInputTokens": 4049825,
+    "reasoningTokens": 1677800,
+    "measuredCostUsd": 4.777694028000002,
+    "retryCostUsd": 0,
+    "supersededChargeUsd": 0,
+    "unfinishedChargeUsd": 0,
+    "totalSpendUsd": 4.777694028000002,
+    "capChargedUsd": 4.777694028000002,
+    "costPerResolvedUsd": 0.06825277182857145
+  },
+  "responseModels": [
+    "deepseek-flash"
+  ],
+  "failureClasses": {
+    "false_success": 11,
+    "agent_budget_exhausted": 8,
+    "empty_patch": 2,
+    "environment_failure": 1
+  },
+  "perVariant": [
+    {
+      "variant": "baseline",
+      "plannedRuns": 46,
+      "observedRuns": 46,
+      "runs": 46,
+      "resolved": 34,
+      "rate": 0.7391304347826086,
+      "ci95": [
+        0.6086956521739131,
+        0.8695652173913043
+      ],
+      "falseSuccessRate": 0.10869565217391304,
+      "emptyPatchRate": 0.043478260869565216,
+      "meanCostUsd": 0.055058278434782594,
+      "meanModelRounds": 38.80434782608695,
+      "totalCostUsd": 2.5326808079999994
+    },
+    {
+      "variant": "ctx-sandbox",
+      "plannedRuns": 46,
+      "observedRuns": 46,
+      "runs": 46,
+      "resolved": 36,
+      "rate": 0.782608695652174,
+      "ci95": [
+        0.6521739130434783,
+        0.8913043478260869
+      ],
+      "falseSuccessRate": 0.13043478260869565,
+      "emptyPatchRate": 0.021739130434782608,
+      "meanCostUsd": 0.0488046352173913,
+      "meanModelRounds": 43.76086956521739,
+      "totalCostUsd": 2.2450132199999997
+    }
+  ]
+}

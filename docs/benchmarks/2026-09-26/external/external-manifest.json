@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "reference": "external",
+  "label": "mini-swe-agent-2.4.6",
+  "split": "dev",
+  "model": "deepseek-flash",
+  "priceSnapshot": {
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "checkedAt": "2026-09-25",
+    "model": "deepseek-flash",
+    "basis": "peak",
+    "peakHoursUtc": "01:00-04:00 and 06:00-10:00 UTC, Monday-Friday, excluding Chinese public holidays",
+    "inputCacheHitPerMillionUsd": 0.006,
+    "inputCacheMissPerMillionUsd": 0.3,
+    "outputPerMillionUsd": 1.2
+  },
+  "imageSource": "epoch",
+  "swebenchVersion": "5.0.2",
+  "jobs": {
+    "django__django-11790": {
+      "inputFingerprint": "8d5771aee83c022763856a9996657230c53f7872048ef1adef124d6520e5a05b",
+      "imageId": "sha256:5c579b0f4c4bf6c8fa0a09346b47e704f8b925df247bf113c2869a9254342401"
+    },
+    "django__django-11815": {
+      "inputFingerprint": "32a2081b7f578b84baa19baf1d8bad33047d8bdb397e939c0f62d68b1d587188",
+      "imageId": "sha256:a9b75d7d46b817d0c9119cdfe90f3044e193eec590090e08cd7c190f32fdbabd"
+    },
+    "django__django-11848": {
+      "inputFingerprint": "29ccef45a14ed56f840f750a4ddbc6375b291c73006199298c0b64ab8962da96",
+      "imageId": "sha256:154597a791958a4ceecd1500a828dd90dca81dfe767966a57e5aae2156e2b259"
+    },
+    "django__django-11880": {
+      "inputFingerprint": "414a08edd3ae46036bdc155f9fe7b1d90bbf832b5338107d7d3b166d27abbbd5",
+      "imageId": "sha256:4dbb0b0aaf115de9b46ff24d4b0d9c67d7f2e97a5809ec3e80292df37d97a18e"
+    },
+    "django__django-11951": {
+      "inputFingerprint": "2c2d3220eaf62293773c39c9634c195e28c8b79f026dfb888723c51c562e2ccb",
+      "imageId": "sha256:52d3bdceddbb2653eade9ea59470377999f9844e3c0c68b1df83f18b7ddfdfb4"
+    },
+    "django__django-11964": {
+      "inputFingerprint": "f35fe95d687971cb0948d9ce6f37e78d2296805b1c1da9ac1a23d3272c2c0192",
+      "imageId": "sha256:5fefb94a80e4dd419924b94924dc5581deb503831f35b5107672d2b2b9cfe85b"
+    },
+    "django__django-11999": {
+      "inputFingerprint": "795a1b6cd20927770b8a37b3fbb160d9d9a5ddb1a4ad9d254b65f601fd80325c",
+      "imageId": "sha256:ee03942d0c0fcd59075768becea1f91c8c5be5af5961c0b80c514a3c526cdf7e"
+    },
+    "django__django-12039": {
+      "inputFingerprint": "a449ec52c33c72687762fb2d1b4646e4b61f8e1c35ed778bce6175176237f936",
+      "imageId": "sha256:a6438fb22b07e48972b0ab9984589132e2c98a3310533a9c54ddff68d33b137e"
+    },
+    "django__django-12050": {
+      "inputFingerprint": "9b0cc976f1e3bf1e07f26d1418b206c9056c3ac67e45b580cddb93f38548bb4d",
+      "imageId": "sha256:5dc1e21cb16b6cd0a98694ebcb049ca589f2d0909e3377058e265c427510c06d"
+    },
+    "django__django-12143": {
+      "inputFingerprint": "c35f059680a8f0ace76a8be4d86fb7f0d320d5b147686fecc294b30514cb82b2",
+      "imageId": "sha256:139045969fdb5c27b2fde8a3f51a081c6446a665b19eb9c738cea4183cbd631b"
+    },
+    "django__django-12155": {
+      "inputFingerprint": "5b08bb9c6589bcc09072e5eb2e0ab83e176c7dbbb350d04994832801b8e13cb4",
+      "imageId": "sha256:35f3b6c1f87b48f6859ed68493094490b1ae3d18c5cc3bc9869100c8bda899e9"
+    },
+    "django__django-12193": {
+      "inputFingerprint": "725ae7cdba46225b84e6b5d80dd656681ec3789bd2f1dfb33a412b8b6a1e84fd",
+      "imageId": "sha256:3dbac97b6cefc8ffbb73260761a78bf8a834698d90a59ecd22f8d6839e27fd50"
+    },
+    "django__django-12262": {
+      "inputFingerprint": "027aa45b0c3ac752acfb4d5c700328958b20633ccb76e36d37171b8fad27c48b",
+      "imageId": "sha256:37d93a5d37f709558d491aec48cfbeca8c7e2e8b4033dfcf4182fe3ec996a164"
+    },
+    "django__django-12276": {
+      "inputFingerprint": "b8a8ac218f48df1cbb2ec7a65accf7b893278952fd012b1cf71eded99b171164",
+      "imageId": "sha256:bd7a2e4a22a6f52afae255ff7ca4e06150e257439880e689c67ca43dd0faffd5"
+    },
+    "django__django-12304": {
+      "inputFingerprint": "2061f6c4aa94a20a1d422506488e9cd3c712290ed36f009ec17f4bbdfe1b8a0a",
+      "imageId": "sha256:a5de99491414691182faa2e3060bd4f6169e56445a7fc447793e075048cddae3"
+    },
+    "django__django-12308": {
+      "inputFingerprint": "c38bd349f76fcfe7ed8702d6a9611bf85e17be8fbe369e0f9fcb596f46e0cd8d",
+      "imageId": "sha256:4b52f6d54aadefa657a2bf47a66d25a7763a1d58d7f88ce7ee25e0d887cdcb56"
+    },
+    "django__django-12325": {
+      "inputFingerprint": "a973415c04dcab536cb154a4e21ed296adbf307b6641fca67c262b5e65457c8c",
+      "imageId": "sha256:ad606f30fccc64985e10bda21a2b7344be928ef6550dc7b7b22103185133d78e"
+    },
+    "django__django-12406": {
+      "inputFingerprint": "88ede6883c7c291f68fee2145ed62e95019418665e9b5c6ec0d27a5dc7a5ec39",
+      "imageId": "sha256:ea9ceb1e80401a115a797ba419658e74105348c6b00968d200a3d643dae08b15"
+    },
+    "django__django-12708": {
+      "inputFingerprint": "1e24d692f5655350ed6d9fea44ce06cd2e0dbc2c56e6cb8f4829e22b5085bd8d",
+      "imageId": "sha256:5e9b0d9096457b5f425e311ce6fdc3e9a35653cca9b533a228d3bb7c2fdfceac"
+    },
+    "django__django-12713": {
+      "inputFingerprint": "b50b422487dc1e10c84ada39da5092a649ca9331dc02d714f5877392fbae18f2",
+      "imageId": "sha256:c4d3a8be11ced8859c36e66ae27df83af82a2a72895ca62f50df659f847030c9"
+    },
+    "django__django-12774": {
+      "inputFingerprint": "82777f1a4c2d1d78d706d47f3a0dbf53a81bc772783dfd6594eea9243a5278d3",
+      "imageId": "sha256:717bd6a2969bf63fdb256f882ff0d2f093b3577821999eeebb1c566b976600e0"
+    },
+    "django__django-9296": {
+      "inputFingerprint": "881f306630dd9191de2274838d5d488e61994dd2ea116b485f69519959504ed2",
+      "imageId": "sha256:df89c6905d7fdfd2f7c84f7126a12148d72c448b6433d2f9137f78a2cf689075"
+    },
+    "sphinx-doc__sphinx-10323": {
+      "inputFingerprint": "2ee8a25bd05a5d31b1e06ef224b68945affe70effc8653cf1088dca630085d28",
+      "imageId": "sha256:42d7dbb1a4cd829dd6094e456d4b761ac6e2b8402459eb3236529bf8d72b32ea"
+    },
+    "sphinx-doc__sphinx-10435": {
+      "inputFingerprint": "08dbfb1efe4db0d7461bd2c9ec00d226cf8907b71af5f063835d74ae13c7ed27",
+      "imageId": "sha256:676224ec06122900736ad29a0d8e1347c1451d684f8c7660df90fd612d805229"
+    },
+    "sphinx-doc__sphinx-10466": {
+      "inputFingerprint": "026c94fcbeadc2693ed898cc25b49cb6b5067b960bafc216b08c9e14bbc088ac",
+      "imageId": "sha256:96fb69b6ebcb25cbe7531cc61d073ddbdec6ef51a5f835076b75655dcbf7a893"
+    },
+    "sphinx-doc__sphinx-7748": {
+      "inputFingerprint": "c3d68dae926032112b90e0a164fcec4a7c84be30d3b89fd9bee0f2d2141a8b36",
+      "imageId": "sha256:2106464a653d0ede2f7770b7779b104705227a11416cf0509fbdd31101f0a545"
+    },
+    "sphinx-doc__sphinx-7757": {
+      "inputFingerprint": "52819231794e2213bca7d04755d32f56ce785e08634942373b2bc2dc0b25ad50",
+      "imageId": "sha256:e261f499bb66e43ef950143823cc942443b917e5f19ecb34232d98456f3e4db4"
+    },
+    "sphinx-doc__sphinx-8035": {
+      "inputFingerprint": "27d1398bf5c47b7fca01bf785c0c086e46198264629e50e805cdb49870412cc1",
+      "imageId": "sha256:82fb5519519caef0d64db1971f2c4ed6fdc4ff7369ef8d49581101f8101db81f"
+    },
+    "sphinx-doc__sphinx-8056": {
+      "inputFingerprint": "9bea8ac7d97201522d19b8a9609a815b8241de0d58d3d64fba26654eb85e7056",
+      "imageId": "sha256:a7a7bf9d2734f1c5cb9737f6d62f80ef6678ac2d921efcb35b1d9784842e0214"
+    },
+    "sphinx-doc__sphinx-8265": {
+      "inputFingerprint": "61090c10eb0f40ace5abac7b55d666a9a5baf47bd5851fe0fb7d8075614a071d",
+      "imageId": "sha256:dcbd2231e823c2abeaaeb4ef86acbbafb726d2b4a3e51364930045a15514a785"
+    },
+    "sphinx-doc__sphinx-8269": {
+      "inputFingerprint": "7be0358d7ec839db6e69f17a69e2fedcb3e410358c4d177c1735995e022be475",
+      "imageId": "sha256:06965f5aff25664e6dbc74d1120b99502948f3615b81d4753a945b7190157dba"
+    },
+    "sphinx-doc__sphinx-8475": {
+      "inputFingerprint": "394e00a8868cd3a5c71f335e1a7704a857f08bdd55fc5e0abdbe11ff261a9a69",
+      "imageId": "sha256:dbe7a29cf26ff62170a14cb8f08cbdbbc694f723412e286bbc90687076674076"
+    },
+    "sphinx-doc__sphinx-8551": {
+      "inputFingerprint": "3498bd5c6418972effb22ee343915e0b6e44b4212ddd14323a9d2913a41fa175",
+      "imageId": "sha256:41cd366547e74629fff2d4dec87bb53a1fc8d8d49aa975cd5db6b49ed349516b"
+    },
+    "sphinx-doc__sphinx-8721": {
+      "inputFingerprint": "269e48613534b06ad16a9d1ebc11c8003430e4a3376f0d63f8738f22b1b096db",
+      "imageId": "sha256:430c1a1190e14d6b6da33f121edbbc480d85c93968d6e2eb270659d14ce2ad8c"
+    },
+    "sphinx-doc__sphinx-9230": {
+      "inputFingerprint": "2bab480ab4f1f48af886b0364d1588cdfba6d14df6c664b98a7f499f9d079eba",
+      "imageId": "sha256:0eb229eb9d6937d78ac8dc25197d60ddc449de2f6ad451ed3901248eb2018644"
+    },
+    "sphinx-doc__sphinx-9320": {
+      "inputFingerprint": "86366c73a5a7fce0e51d69a5468a857a15e78b67b6d690593946f795b4e896a5",
+      "imageId": "sha256:0577c6d06f103b6d8ea7b980067f14dd66e58a860d2dd1cef2686cf59f14d87a"
+    },
+    "sphinx-doc__sphinx-9367": {
+      "inputFingerprint": "e6d9b7d823cee5d52d0028eb0af7e52ac634ac332ee07e9271c4855052e67bc3",
+      "imageId": "sha256:2c8f37cd1e3ef8b238ac760b10fb2d7bbdf99caee296b07c9a8829629bf4bf56"
+    },
+    "sphinx-doc__sphinx-9698": {
+      "inputFingerprint": "bc03663b67c4b033bfd8d031b689e218e15ef8fa9364de3ecc7ab3e9cda02832",
+      "imageId": "sha256:78b14806c68828ea91a6c2fb95105ee85f30939ad913680570d494fab5e66bbb"
+    },
+    "django__django-11885": {
+      "inputFingerprint": "43c0b57b0570ebd04ea4f8635cb84718e2e1830d1469b4bf95b9f273336a2ffd",
+      "imageId": null
+    },
+    "django__django-12209": {
+      "inputFingerprint": "8503a26c8262c4fbc8debb8d330463c729411614c149d8a083f86f3d9b237608",
+      "imageId": null
+    },
+    "django__django-12273": {
+      "inputFingerprint": "ff96c15d313066a47c81f11363dd325532ea35bb41c2dabe4ea6f304b6dc5acc",
+      "imageId": null
+    },
+    "sphinx-doc__sphinx-10673": {
+      "inputFingerprint": "a3bc5c9c8e5ff334a0be54238e16e1effea597a4f6edac507a44b02c500a00ba",
+      "imageId": null
+    },
+    "sphinx-doc__sphinx-11510": {
+      "inputFingerprint": "1e4f50a5660efe602e0ad68be788dfa5927ad722ef33c737bd40e9c6e9c1f5eb",
+      "imageId": null
+    },
+    "sphinx-doc__sphinx-7590": {
+      "inputFingerprint": "029cdf6c9a301175a73e591753b68a08fb93435b98e66e9aa8c557351a782a4c",
+      "imageId": null
+    },
+    "sphinx-doc__sphinx-7985": {
+      "inputFingerprint": "497f150b5a6b9d1d147fbcc8d7d9ed5b910c46ef2eb8afda1c8c5da9dfaff4da",
+      "imageId": null
+    },
+    "sphinx-doc__sphinx-8548": {
+      "inputFingerprint": "5b89e7d53006815d3f5fa1d32449ecbca547614ddaa95658837fdf46aa5358fd",
+      "imageId": null
+    },
+    "sphinx-doc__sphinx-8638": {
+      "inputFingerprint": "d2fab141649d9ed3cb49f4449b49428b346d61140b21c017eaaf5ebbf1a202cf",
+      "imageId": null
+    },
+    "sphinx-doc__sphinx-9229": {
+      "inputFingerprint": "22d4b67f0fd4e5e53ee6bf5c9618e631b5ecc7d962e0f8a25b1dc1245ec73404",
+      "imageId": null
+    },
+    "sphinx-doc__sphinx-9281": {
+      "inputFingerprint": "118fc6894e26de294c3afa5aa108e2dd729d4d2ca26cb750118dcc4731ea22e1",
+      "imageId": null
+    },
+    "sphinx-doc__sphinx-9461": {
+      "inputFingerprint": "2649c6b7bb61ca1d5ca878201cfee30e5a2cfaf9d7a51ce99a653128f9713fe1",
+      "imageId": null
+    }
+  }
+}

@@ -1,0 +1,2599 @@
+{
+  "schemaVersion": 1,
+  "kind": "paired_comparison",
+  "generatedAt": "2026-09-26T13:29:42.682Z",
+  "benchmark": "swebench",
+  "model": "deepseek-flash",
+  "splits": [
+    "holdout"
+  ],
+  "a": "baseline",
+  "b": "ctx-sandbox",
+  "resultsDirs": [
+    "eval/results/final-2026-09-26-holdout"
+  ],
+  "settings": {
+    "bootstrap": 10000,
+    "seed": 20260925,
+    "margin": 0.1,
+    "alpha": 0.05,
+    "primary": [
+      "estimatedCostUsd",
+      "modelRounds"
+    ]
+  },
+  "pairing": {
+    "pairedTasks": 46,
+    "onlyInA": [],
+    "onlyInB": []
+  },
+  "completeness": {
+    "complete": true,
+    "a": {
+      "variant": "baseline",
+      "complete": true,
+      "flags": [],
+      "plannedRuns": 46,
+      "observedRuns": 46,
+      "scoredRuns": 46,
+      "missingRuns": 0,
+      "unplannedRuns": 0,
+      "capReached": false,
+      "circuitOpen": false,
+      "invalidResultRuns": 0,
+      "harnessErrorRuns": 0,
+      "gradingErrorRuns": 0,
+      "providerErrorRuns": 0,
+      "environmentFailureRuns": 0,
+      "patchCausedRuns": {
+        "test_timeout": 0,
+        "oom": 0,
+        "tests_errored": 0
+      }
+    },
+    "b": {
+      "variant": "ctx-sandbox",
+      "complete": true,
+      "flags": [],
+      "plannedRuns": 46,
+      "observedRuns": 46,
+      "scoredRuns": 46,
+      "missingRuns": 0,
+      "unplannedRuns": 0,
+      "capReached": false,
+      "circuitOpen": false,
+      "invalidResultRuns": 0,
+      "harnessErrorRuns": 0,
+      "gradingErrorRuns": 0,
+      "providerErrorRuns": 0,
+      "environmentFailureRuns": 1,
+      "patchCausedRuns": {
+        "test_timeout": 0,
+        "oom": 0,
+        "tests_errored": 0
+      }
+    }
+  },
+  "responseModels": {
+    "a": [
+      "deepseek-flash"
+    ],
+    "b": [
+      "deepseek-flash"
+    ]
+  },
+  "warnings": [],
+  "interpretation": [
+    "estimatedCostUsd: significantly lower in B; B vs A -16.1% (geometric mean; 95% CI -28.1% to -2.5%), Holm-adjusted p = 0.039.",
+    "modelRounds: no detectable difference; B vs A +8.9% (geometric mean; 95% CI -5.0% to +24.0%).",
+    "resolved: no detectable difference; B − A = +4.3 pp (95% CI -6.5 pp to +15.2 pp).",
+    "resolved: B is non-inferior to A at a 10.0 pp margin; the lower 95% CI bound of B − A, -6.5 pp, is above -10.0 pp."
+  ],
+  "slices": {
+    "all": {
+      "definition": "Every paired task; each metric averages that arm's valid runs of the task.",
+      "tasks": 46,
+      "metrics": [
+        {
+          "metric": "resolved",
+          "kind": "rate",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.7391304347826086,
+            "median": 1
+          },
+          "b": {
+            "mean": 0.782608695652174,
+            "median": 1
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.043478260869565216,
+          "ci95": [
+            -0.06521739130434782,
+            0.15217391304347827
+          ],
+          "p": 0.534,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "falseSuccess",
+          "kind": "rate",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.10869565217391304,
+            "median": 0
+          },
+          "b": {
+            "mean": 0.13043478260869565,
+            "median": 0
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.021739130434782608,
+          "ci95": [
+            -0.043478260869565216,
+            0.10869565217391304
+          ],
+          "p": 0.7896,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "emptyPatch",
+          "kind": "rate",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.043478260869565216,
+            "median": 0
+          },
+          "b": {
+            "mean": 0.021739130434782608,
+            "median": 0
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.021739130434782608,
+          "ci95": [
+            -0.10869565217391304,
+            0.043478260869565216
+          ],
+          "p": 0.79,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "cacheHitRate",
+          "kind": "rate",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.9575085486311856,
+            "median": 0.9616570602485337
+          },
+          "b": {
+            "mean": 0.957859373134921,
+            "median": 0.9681770514707939
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.00035082450373541407,
+          "ci95": [
+            -0.008861308907272552,
+            0.008219677164635114
+          ],
+          "p": 0.9134,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "toolFailureRate",
+          "kind": "rate",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.09893987135658101,
+            "median": 0.09685741088180114
+          },
+          "b": {
+            "mean": 0.0877891795442893,
+            "median": 0.07970356926799757
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.011150691812291735,
+          "ci95": [
+            -0.024206301283615707,
+            0.0016728614337200396
+          ],
+          "p": 0.0932,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "governanceShare",
+          "kind": "rate",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.1534164619686985,
+            "median": 0.15587044534412955
+          },
+          "b": {
+            "mean": 0.1649592191943534,
+            "median": 0.15264550264550264
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.011542757225654903,
+          "ci95": [
+            -0.009129428128707245,
+            0.033979504276363294
+          ],
+          "p": 0.2902,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "modelRounds",
+          "kind": "efficiency",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 38.80434782608695,
+            "median": 34
+          },
+          "b": {
+            "mean": 43.76086956521739,
+            "median": 45.5
+          },
+          "primary": true,
+          "pHolm": 0.2182,
+          "significant": false,
+          "estimate": 0.08884627614240848,
+          "ci95": [
+            -0.050393061444927945,
+            0.24022894507118542
+          ],
+          "p": 0.2182,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "toolCalls",
+          "kind": "efficiency",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 55.76086956521739,
+            "median": 50.5
+          },
+          "b": {
+            "mean": 60.47826086956522,
+            "median": 59.5
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.044488458451025004,
+          "ci95": [
+            -0.07819905448320097,
+            0.17529505627342212
+          ],
+          "p": 0.4888,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "inputTokens",
+          "kind": "efficiency",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 1647668.9130434783,
+            "median": 1033196
+          },
+          "b": {
+            "mean": 1467907.456521739,
+            "median": 1247076.5
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.22672700444181637,
+          "ci95": [
+            -0.38622190539762613,
+            -0.03221028642709989
+          ],
+          "p": 0.023,
+          "ciExcludesZero": true
+        },
+        {
+          "metric": "outputTokens",
+          "kind": "efficiency",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 24895.021739130436,
+            "median": 17926.5
+          },
+          "b": {
+            "mean": 24509.804347826088,
+            "median": 18699
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.05081255640202198,
+          "ci95": [
+            -0.21580401446699504,
+            0.13315937869772432
+          ],
+          "p": 0.5712,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "reasoningTokens",
+          "kind": "efficiency",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 18892.891304347828,
+            "median": 12194.5
+          },
+          "b": {
+            "mean": 17581.021739130436,
+            "median": 13218
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.1421285154399594,
+          "ci95": [
+            -0.3458647858980678,
+            0.08628144711360175
+          ],
+          "p": 0.2162,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "estimatedCostUsd",
+          "kind": "efficiency",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.055058278434782594,
+            "median": 0.04562826
+          },
+          "b": {
+            "mean": 0.0488046352173913,
+            "median": 0.04288308
+          },
+          "primary": true,
+          "pHolm": 0.0392,
+          "significant": true,
+          "estimate": -0.16126748762841991,
+          "ci95": [
+            -0.28115190626069786,
+            -0.02471778711432182
+          ],
+          "p": 0.0196,
+          "ciExcludesZero": true
+        },
+        {
+          "metric": "durationMs",
+          "kind": "efficiency",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 208913.0652173913,
+            "median": 158886.5
+          },
+          "b": {
+            "mean": 263885.3043478261,
+            "median": 188440.5
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.14545357207648624,
+          "ci95": [
+            -0.03698327798550449,
+            0.3652879427472848
+          ],
+          "p": 0.1256,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "modelLatencyMs",
+          "kind": "efficiency",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 122831.13043478261,
+            "median": 88898.5
+          },
+          "b": {
+            "mean": 121361.97826086957,
+            "median": 98097.5
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.04421860048241899,
+          "ci95": [
+            -0.19664502458878141,
+            0.12672517718960652
+          ],
+          "p": 0.5876,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "toolTimeMs",
+          "kind": "efficiency",
+          "tasks": 46,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 51182.97826086957,
+            "median": 11352.5
+          },
+          "b": {
+            "mean": 106769.91304347826,
+            "median": 18587
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.8222002103227462,
+          "ci95": [
+            0.22223926916832037,
+            1.7540332093714817
+          ],
+          "p": 0.0016,
+          "ciExcludesZero": true
+        }
+      ]
+    },
+    "resolvedBoth": {
+      "definition": "Tasks with at least one resolved run in each arm; each efficiency metric averages the resolved runs only.",
+      "tasks": 32,
+      "metrics": [
+        {
+          "metric": "cacheHitRate",
+          "kind": "rate",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.9515776474621503,
+            "median": 0.9519686345169633
+          },
+          "b": {
+            "mean": 0.9526534892467421,
+            "median": 0.9616842713064149
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.0010758417845919757,
+          "ci95": [
+            -0.00902270774764807,
+            0.01028614309909373
+          ],
+          "p": 0.783,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "toolFailureRate",
+          "kind": "rate",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.09946539563370678,
+            "median": 0.09878048780487805
+          },
+          "b": {
+            "mean": 0.08372601433233876,
+            "median": 0.075998075998076
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.015739381301368028,
+          "ci95": [
+            -0.03059184834177144,
+            -0.0013581498156084513
+          ],
+          "p": 0.0312,
+          "ciExcludesZero": true
+        },
+        {
+          "metric": "governanceShare",
+          "kind": "rate",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.1770174612362146,
+            "median": 0.19592163134746102
+          },
+          "b": {
+            "mean": 0.1986340559067878,
+            "median": 0.1797979797979798
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.021616594670573155,
+          "ci95": [
+            -0.003561368837969578,
+            0.04996506897146021
+          ],
+          "p": 0.0974,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "modelRounds",
+          "kind": "efficiency",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 34.40625,
+            "median": 30.5
+          },
+          "b": {
+            "mean": 39.21875,
+            "median": 36
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.10676415549485285,
+          "ci95": [
+            -0.0411243736879916,
+            0.2819253935529247
+          ],
+          "p": 0.1594,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "toolCalls",
+          "kind": "efficiency",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 48.96875,
+            "median": 46
+          },
+          "b": {
+            "mean": 54.28125,
+            "median": 54
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.0565926012226623,
+          "ci95": [
+            -0.08450003641457682,
+            0.21870749268428247
+          ],
+          "p": 0.4354,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "inputTokens",
+          "kind": "efficiency",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 1305209.6875,
+            "median": 989454.5
+          },
+          "b": {
+            "mean": 1151916.96875,
+            "median": 731476.5
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.23924783298292862,
+          "ci95": [
+            -0.41532399532366493,
+            0.0018946399844443906
+          ],
+          "p": 0.0522,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "outputTokens",
+          "kind": "efficiency",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 18064.96875,
+            "median": 13454
+          },
+          "b": {
+            "mean": 18223.28125,
+            "median": 15939.5
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.06432767556739183,
+          "ci95": [
+            -0.26254410990433363,
+            0.17521244517192391
+          ],
+          "p": 0.605,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "reasoningTokens",
+          "kind": "efficiency",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 12816.1875,
+            "median": 8705.5
+          },
+          "b": {
+            "mean": 12069.84375,
+            "median": 8798
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.18735588753235555,
+          "ci95": [
+            -0.4348421020976324,
+            0.12253807721936893
+          ],
+          "p": 0.236,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "estimatedCostUsd",
+          "kind": "efficiency",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 0.04341944474999999,
+            "median": 0.036110046
+          },
+          "b": {
+            "mean": 0.03838646812500001,
+            "median": 0.031935366
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.17751111244382223,
+          "ci95": [
+            -0.31834846454542753,
+            -0.0015163198432563973
+          ],
+          "p": 0.0472,
+          "ciExcludesZero": true
+        },
+        {
+          "metric": "durationMs",
+          "kind": "efficiency",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 182641.25,
+            "median": 125901.5
+          },
+          "b": {
+            "mean": 243897.1875,
+            "median": 148773
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 0.1985685281612133,
+          "ci95": [
+            -0.014846815708109085,
+            0.48411280245877464
+          ],
+          "p": 0.0746,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "modelLatencyMs",
+          "kind": "efficiency",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 91773.28125,
+            "median": 69045
+          },
+          "b": {
+            "mean": 93165.25,
+            "median": 81840
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": -0.04619102901052907,
+          "ci95": [
+            -0.2273848024490075,
+            0.17376425806305473
+          ],
+          "p": 0.681,
+          "ciExcludesZero": false
+        },
+        {
+          "metric": "toolTimeMs",
+          "kind": "efficiency",
+          "tasks": 32,
+          "skippedBothZero": 0,
+          "a": {
+            "mean": 54756.09375,
+            "median": 11541
+          },
+          "b": {
+            "mean": 114594.8125,
+            "median": 19021.5
+          },
+          "primary": false,
+          "pHolm": null,
+          "significant": null,
+          "estimate": 1.0180223914175985,
+          "ci95": [
+            0.3746849884857857,
+            2.1637606650283754
+          ],
+          "p": 0.0001,
+          "ciExcludesZero": true
+        }
+      ]
+    }
+  },
+  "nonInferiority": {
+    "metric": "resolved",
+    "margin": 0.1,
+    "difference": 0.043478260869565216,
+    "ci95": [
+      -0.06521739130434782,
+      0.15217391304347827
+    ],
+    "nonInferior": true
+  },
+  "costPerResolved": {
+    "definition": "Sum over paired tasks of per-task mean cost, divided by the sum of per-task resolved rates; the ratio is B/A.",
+    "a": {
+      "totalCostUsd": 2.5326808079999994,
+      "resolvedTasks": 34,
+      "costPerResolvedUsd": 0.07449061199999998
+    },
+    "b": {
+      "totalCostUsd": 2.2450132199999997,
+      "resolvedTasks": 36,
+      "costPerResolvedUsd": 0.062361478333333324
+    },
+    "ratio": 0.8371723182155267,
+    "ci95": [
+      0.7242089449847419,
+      0.9563265485750052
+    ],
+    "undefinedReplicates": 0
+  },
+  "retryCostUsd": {
+    "a": 0,
+    "b": 0
+  },
+  "claims": {
+    "a": {
+      "runs": 46,
+      "claimedResolved": 26,
+      "claimedUnresolved": 5,
+      "unclaimedResolved": 8,
+      "unclaimedUnresolved": 7
+    },
+    "b": {
+      "runs": 46,
+      "claimedResolved": 28,
+      "claimedUnresolved": 6,
+      "unclaimedResolved": 8,
+      "unclaimedUnresolved": 4
+    }
+  },
+  "perTask": [
+    {
+      "taskId": "astropy__astropy-13453",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.960893766800436,
+        "toolFailureRate": 0.14545454545454545,
+        "governanceShare": 0.10909090909090909,
+        "modelRounds": 39,
+        "toolCalls": 55,
+        "inputTokens": 3049028,
+        "outputTokens": 20987,
+        "reasoningTokens": 14504,
+        "estimatedCostUsd": 0.07853395199999999,
+        "durationMs": 229452,
+        "modelLatencyMs": 117902,
+        "toolTimeMs": 17836
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9684752737679237,
+        "toolFailureRate": 0.03571428571428571,
+        "governanceShare": 0.14285714285714285,
+        "modelRounds": 47,
+        "toolCalls": 56,
+        "inputTokens": 1865266,
+        "outputTokens": 16766,
+        "reasoningTokens": 9489,
+        "estimatedCostUsd": 0.048598584,
+        "durationMs": 211687,
+        "modelLatencyMs": 98470,
+        "toolTimeMs": 25889
+      }
+    },
+    {
+      "taskId": "astropy__astropy-14365",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9379660461356781,
+        "toolFailureRate": 0.07894736842105263,
+        "governanceShare": 0.23684210526315788,
+        "modelRounds": 30,
+        "toolCalls": 38,
+        "inputTokens": 713851,
+        "outputTokens": 10381,
+        "reasoningTokens": 5851,
+        "estimatedCostUsd": 0.029759508000000004,
+        "durationMs": 150023,
+        "modelLatencyMs": 58571,
+        "toolTimeMs": 18502
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9203590890312596,
+        "toolFailureRate": 0.04,
+        "governanceShare": 0.32,
+        "modelRounds": 19,
+        "toolCalls": 25,
+        "inputTokens": 304994,
+        "outputTokens": 6061,
+        "reasoningTokens": 3751,
+        "estimatedCostUsd": 0.016244424,
+        "durationMs": 119945,
+        "modelLatencyMs": 33842,
+        "toolTimeMs": 13874
+      }
+    },
+    {
+      "taskId": "astropy__astropy-7166",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9448594806118819,
+        "toolFailureRate": 0.11764705882352941,
+        "governanceShare": 0.20588235294117646,
+        "modelRounds": 28,
+        "toolCalls": 34,
+        "inputTokens": 1023204,
+        "outputTokens": 12709,
+        "reasoningTokens": 8778,
+        "estimatedCostUsd": 0.037977503999999995,
+        "durationMs": 118739,
+        "modelLatencyMs": 65121,
+        "toolTimeMs": 26201
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9735199729683849,
+        "toolFailureRate": 0.07142857142857142,
+        "governanceShare": 0.15714285714285714,
+        "modelRounds": 49,
+        "toolCalls": 70,
+        "inputTokens": 1843767,
+        "outputTokens": 32756,
+        "reasoningTokens": 22986,
+        "estimatedCostUsd": 0.064723764,
+        "durationMs": 821892,
+        "modelLatencyMs": 153722,
+        "toolTimeMs": 639058
+      }
+    },
+    {
+      "taskId": "django__django-10880",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9647493879431628,
+        "toolFailureRate": 0.10204081632653061,
+        "governanceShare": 0.14285714285714285,
+        "modelRounds": 38,
+        "toolCalls": 49,
+        "inputTokens": 1501903,
+        "outputTokens": 17429,
+        "reasoningTokens": 11459,
+        "estimatedCostUsd": 0.04549146,
+        "durationMs": 122648,
+        "modelLatencyMs": 88312,
+        "toolTimeMs": 6398
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.957061322675276,
+        "toolFailureRate": 0.07407407407407407,
+        "governanceShare": 0.14814814814814814,
+        "modelRounds": 40,
+        "toolCalls": 54,
+        "inputTokens": 695061,
+        "outputTokens": 11436,
+        "reasoningTokens": 6006,
+        "estimatedCostUsd": 0.026667996,
+        "durationMs": 104040,
+        "modelLatencyMs": 65777,
+        "toolTimeMs": 7694
+      }
+    },
+    {
+      "taskId": "django__django-11276",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.966146566777446,
+        "toolFailureRate": 0.09615384615384616,
+        "governanceShare": 0.1346153846153846,
+        "modelRounds": 37,
+        "toolCalls": 52,
+        "inputTokens": 2041595,
+        "outputTokens": 24336,
+        "reasoningTokens": 18414,
+        "estimatedCostUsd": 0.06177258,
+        "durationMs": 173408,
+        "modelLatencyMs": 124697,
+        "toolTimeMs": 16122
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9637949351083451,
+        "toolFailureRate": 0.1016949152542373,
+        "governanceShare": 0.1864406779661017,
+        "modelRounds": 36,
+        "toolCalls": 59,
+        "inputTokens": 1074021,
+        "outputTokens": 24469,
+        "reasoningTokens": 17711,
+        "estimatedCostUsd": 0.047239116,
+        "durationMs": 153949,
+        "modelLatencyMs": 115343,
+        "toolTimeMs": 4538
+      }
+    },
+    {
+      "taskId": "django__django-11532",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.970197970527492,
+        "toolFailureRate": 0.11320754716981132,
+        "governanceShare": 0.1509433962264151,
+        "modelRounds": 32,
+        "toolCalls": 53,
+        "inputTokens": 1474866,
+        "outputTokens": 29583,
+        "reasoningTokens": 23990,
+        "estimatedCostUsd": 0.057271272,
+        "durationMs": 169268,
+        "modelLatencyMs": 134226,
+        "toolTimeMs": 5643
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9563931644649133,
+        "toolFailureRate": 0.06666666666666667,
+        "governanceShare": 0.23333333333333334,
+        "modelRounds": 19,
+        "toolCalls": 30,
+        "inputTokens": 330040,
+        "outputTokens": 18027,
+        "reasoningTokens": 14593,
+        "estimatedCostUsd": 0.027843887999999997,
+        "durationMs": 109742,
+        "modelLatencyMs": 79522,
+        "toolTimeMs": 3028
+      }
+    },
+    {
+      "taskId": "django__django-13212",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9734060296119108,
+        "toolFailureRate": 0.09302325581395349,
+        "governanceShare": 0.06976744186046512,
+        "modelRounds": 56,
+        "toolCalls": 86,
+        "inputTokens": 3030875,
+        "outputTokens": 37892,
+        "reasoningTokens": 27056,
+        "estimatedCostUsd": 0.087352932,
+        "durationMs": 581630,
+        "modelLatencyMs": 180849,
+        "toolTimeMs": 368834
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9702767169335957,
+        "toolFailureRate": 0.09375,
+        "governanceShare": 0.171875,
+        "modelRounds": 46,
+        "toolCalls": 64,
+        "inputTokens": 1453507,
+        "outputTokens": 21713,
+        "reasoningTokens": 14059,
+        "estimatedCostUsd": 0.047478323999999995,
+        "durationMs": 496229,
+        "modelLatencyMs": 106986,
+        "toolTimeMs": 359932
+      }
+    },
+    {
+      "taskId": "django__django-13315",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9763125961471297,
+        "toolFailureRate": 0.08888888888888889,
+        "governanceShare": 0.07777777777777778,
+        "modelRounds": 59,
+        "toolCalls": 90,
+        "inputTokens": 3077965,
+        "outputTokens": 47438,
+        "reasoningTokens": 39439,
+        "estimatedCostUsd": 0.096828636,
+        "durationMs": 631940,
+        "modelLatencyMs": 230217,
+        "toolTimeMs": 370188
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9772780755654333,
+        "toolFailureRate": 0.1326530612244898,
+        "governanceShare": 0.10204081632653061,
+        "modelRounds": 73,
+        "toolCalls": 98,
+        "inputTokens": 2638905,
+        "outputTokens": 25747,
+        "reasoningTokens": 16487,
+        "estimatedCostUsd": 0.064358364,
+        "durationMs": 558953,
+        "modelLatencyMs": 154298,
+        "toolTimeMs": 372105
+      }
+    },
+    {
+      "taskId": "django__django-13410",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.8848346636259977,
+        "toolFailureRate": 0,
+        "governanceShare": 0.29411764705882354,
+        "modelRounds": 12,
+        "toolCalls": 17,
+        "inputTokens": 84192,
+        "outputTokens": 1946,
+        "reasoningTokens": 406,
+        "estimatedCostUsd": 0.005690976,
+        "durationMs": 41993,
+        "modelLatencyMs": 13048,
+        "toolTimeMs": 976
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9149955824475917,
+        "toolFailureRate": 0.037037037037037035,
+        "governanceShare": 0.25925925925925924,
+        "modelRounds": 20,
+        "toolCalls": 27,
+        "inputTokens": 149404,
+        "outputTokens": 3972,
+        "reasoningTokens": 990,
+        "estimatedCostUsd": 0.009396624,
+        "durationMs": 126520,
+        "modelLatencyMs": 23054,
+        "toolTimeMs": 76299
+      }
+    },
+    {
+      "taskId": "django__django-13569",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9475023225331822,
+        "toolFailureRate": 0.10256410256410256,
+        "governanceShare": 0.1794871794871795,
+        "modelRounds": 28,
+        "toolCalls": 39,
+        "inputTokens": 1008597,
+        "outputTokens": 12310,
+        "reasoningTokens": 8438,
+        "estimatedCostUsd": 0.036390588,
+        "durationMs": 99262,
+        "modelLatencyMs": 64297,
+        "toolTimeMs": 4438
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9528277896067352,
+        "toolFailureRate": 0.057692307692307696,
+        "governanceShare": 0.17307692307692307,
+        "modelRounds": 36,
+        "toolCalls": 52,
+        "inputTokens": 664565,
+        "outputTokens": 9999,
+        "reasoningTokens": 4504,
+        "estimatedCostUsd": 0.025202796,
+        "durationMs": 90834,
+        "modelLatencyMs": 54237,
+        "toolTimeMs": 8331
+      }
+    },
+    {
+      "taskId": "django__django-13837",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9875468248894431,
+        "toolFailureRate": 0.1527777777777778,
+        "governanceShare": 0.041666666666666664,
+        "modelRounds": 51,
+        "toolCalls": 72,
+        "inputTokens": 3028304,
+        "outputTokens": 75649,
+        "reasoningTokens": 67398,
+        "estimatedCostUsd": 0.120035952,
+        "durationMs": 370051,
+        "modelLatencyMs": 316715,
+        "toolTimeMs": 22779
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9837848449809086,
+        "toolFailureRate": 0.09523809523809523,
+        "governanceShare": 0.10714285714285714,
+        "modelRounds": 54,
+        "toolCalls": 84,
+        "inputTokens": 3005275,
+        "outputTokens": 61684,
+        "reasoningTokens": 51765,
+        "estimatedCostUsd": 0.106379364,
+        "durationMs": 311179,
+        "modelLatencyMs": 265938,
+        "toolTimeMs": 14224
+      }
+    },
+    {
+      "taskId": "django__django-14170",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9559588514094131,
+        "toolFailureRate": 0.10256410256410256,
+        "governanceShare": 0.28205128205128205,
+        "modelRounds": 27,
+        "toolCalls": 39,
+        "inputTokens": 934467,
+        "outputTokens": 18936,
+        "reasoningTokens": 13160,
+        "estimatedCostUsd": 0.040429572,
+        "durationMs": 128062,
+        "modelLatencyMs": 88356,
+        "toolTimeMs": 4640
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9765210976070737,
+        "toolFailureRate": 0.057971014492753624,
+        "governanceShare": 0.11594202898550725,
+        "modelRounds": 45,
+        "toolCalls": 69,
+        "inputTokens": 1478817,
+        "outputTokens": 31928,
+        "reasoningTokens": 20714,
+        "estimatedCostUsd": 0.057394476,
+        "durationMs": 187937,
+        "modelLatencyMs": 142423,
+        "toolTimeMs": 7532
+      }
+    },
+    {
+      "taskId": "django__django-14493",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9392450718238915,
+        "toolFailureRate": 0.034482758620689655,
+        "governanceShare": 0.20689655172413793,
+        "modelRounds": 22,
+        "toolCalls": 29,
+        "inputTokens": 562835,
+        "outputTokens": 7964,
+        "reasoningTokens": 5350,
+        "estimatedCostUsd": 0.022987140000000003,
+        "durationMs": 82837,
+        "modelLatencyMs": 42648,
+        "toolTimeMs": 4389
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9051999914882147,
+        "toolFailureRate": 0.05555555555555555,
+        "governanceShare": 0.3888888888888889,
+        "modelRounds": 18,
+        "toolCalls": 18,
+        "inputTokens": 140981,
+        "outputTokens": 3152,
+        "reasoningTokens": 1335,
+        "estimatedCostUsd": 0.008557595999999999,
+        "durationMs": 59916,
+        "modelLatencyMs": 21522,
+        "toolTimeMs": 4599
+      }
+    },
+    {
+      "taskId": "django__django-14792",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9800117471414858,
+        "toolFailureRate": 0.08045977011494253,
+        "governanceShare": 0.04597701149425287,
+        "modelRounds": 43,
+        "toolCalls": 87,
+        "inputTokens": 3091816,
+        "outputTokens": 89785,
+        "reasoningTokens": 78847,
+        "estimatedCostUsd": 0.144462096,
+        "durationMs": 415164,
+        "modelLatencyMs": 370351,
+        "toolTimeMs": 7690
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9836823764881625,
+        "toolFailureRate": 0.14942528735632185,
+        "governanceShare": 0.011494252873563218,
+        "modelRounds": 61,
+        "toolCalls": 87,
+        "inputTokens": 3009752,
+        "outputTokens": 58540,
+        "reasoningTokens": 49684,
+        "estimatedCostUsd": 0.10274544000000001,
+        "durationMs": 305500,
+        "modelLatencyMs": 258785,
+        "toolTimeMs": 8769
+      }
+    },
+    {
+      "taskId": "django__django-15104",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9477553176281889,
+        "toolFailureRate": 0.10416666666666667,
+        "governanceShare": 0.20833333333333334,
+        "modelRounds": 27,
+        "toolCalls": 48,
+        "inputTokens": 412731,
+        "outputTokens": 12782,
+        "reasoningTokens": 8633,
+        "estimatedCostUsd": 0.024154308,
+        "durationMs": 102990,
+        "modelLatencyMs": 64068,
+        "toolTimeMs": 2577
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.8543904739012259,
+        "toolFailureRate": 0.058823529411764705,
+        "governanceShare": 0.47058823529411764,
+        "modelRounds": 13,
+        "toolCalls": 17,
+        "inputTokens": 108166,
+        "outputTokens": 2465,
+        "reasoningTokens": 628,
+        "estimatedCostUsd": 0.008237496,
+        "durationMs": 52547,
+        "modelLatencyMs": 15853,
+        "toolTimeMs": 2570
+      }
+    },
+    {
+      "taskId": "django__django-15380",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9419158584634797,
+        "toolFailureRate": 0.08823529411764706,
+        "governanceShare": 0.20588235294117646,
+        "modelRounds": 25,
+        "toolCalls": 34,
+        "inputTokens": 995418,
+        "outputTokens": 9734,
+        "reasoningTokens": 5890,
+        "estimatedCostUsd": 0.034651799999999996,
+        "durationMs": 92104,
+        "modelLatencyMs": 50724,
+        "toolTimeMs": 5810
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.967878829173664,
+        "toolFailureRate": 0.06349206349206349,
+        "governanceShare": 0.19047619047619047,
+        "modelRounds": 48,
+        "toolCalls": 63,
+        "inputTokens": 1247495,
+        "outputTokens": 15936,
+        "reasoningTokens": 7862,
+        "estimatedCostUsd": 0.038389044,
+        "durationMs": 132682,
+        "modelLatencyMs": 86362,
+        "toolTimeMs": 9957
+      }
+    },
+    {
+      "taskId": "django__django-15382",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 1,
+        "cacheHitRate": 0.9830591050758736,
+        "toolFailureRate": 0.06382978723404255,
+        "governanceShare": 0.0425531914893617,
+        "modelRounds": 76,
+        "toolCalls": 94,
+        "inputTokens": 3033665,
+        "outputTokens": 28188,
+        "reasoningTokens": 17902,
+        "estimatedCostUsd": 0.06713713199999999,
+        "durationMs": 184987,
+        "modelLatencyMs": 169062,
+        "toolTimeMs": 7751
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9810565946599573,
+        "toolFailureRate": 0.11650485436893204,
+        "governanceShare": 0.038834951456310676,
+        "modelRounds": 69,
+        "toolCalls": 103,
+        "inputTokens": 3022635,
+        "outputTokens": 50068,
+        "reasoningTokens": 39232,
+        "estimatedCostUsd": 0.095051556,
+        "durationMs": 290723,
+        "modelLatencyMs": 240330,
+        "toolTimeMs": 11884
+      }
+    },
+    {
+      "taskId": "django__django-15563",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9684930997773867,
+        "toolFailureRate": 0.1,
+        "governanceShare": 0.07142857142857142,
+        "modelRounds": 44,
+        "toolCalls": 70,
+        "inputTokens": 3040699,
+        "outputTokens": 27124,
+        "reasoningTokens": 21400,
+        "estimatedCostUsd": 0.07895907599999999,
+        "durationMs": 184458,
+        "modelLatencyMs": 142169,
+        "toolTimeMs": 3774
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9824622152199232,
+        "toolFailureRate": 0.08421052631578947,
+        "governanceShare": 0.042105263157894736,
+        "modelRounds": 78,
+        "toolCalls": 95,
+        "inputTokens": 3003458,
+        "outputTokens": 27967,
+        "reasoningTokens": 17431,
+        "estimatedCostUsd": 0.067067304,
+        "durationMs": 212217,
+        "modelLatencyMs": 167746,
+        "toolTimeMs": 6287
+      }
+    },
+    {
+      "taskId": "django__django-15695",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9833470178319543,
+        "toolFailureRate": 0.075,
+        "governanceShare": 0.05,
+        "modelRounds": 62,
+        "toolCalls": 80,
+        "inputTokens": 3039936,
+        "outputTokens": 72287,
+        "reasoningTokens": 64618,
+        "estimatedCostUsd": 0.119867472,
+        "durationMs": 374687,
+        "modelLatencyMs": 328936,
+        "toolTimeMs": 6818
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9861314781715689,
+        "toolFailureRate": 0.08045977011494253,
+        "governanceShare": 0.034482758620689655,
+        "modelRounds": 59,
+        "toolCalls": 87,
+        "inputTokens": 3053678,
+        "outputTokens": 60812,
+        "reasoningTokens": 52378,
+        "estimatedCostUsd": 0.10374736799999999,
+        "durationMs": 316554,
+        "modelLatencyMs": 268077,
+        "toolTimeMs": 9224
+      }
+    },
+    {
+      "taskId": "django__django-15731",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9144890710198359,
+        "toolFailureRate": 0.07692307692307693,
+        "governanceShare": 0.19230769230769232,
+        "modelRounds": 17,
+        "toolCalls": 26,
+        "inputTokens": 148367,
+        "outputTokens": 5028,
+        "reasoningTokens": 2589,
+        "estimatedCostUsd": 0.01065378,
+        "durationMs": 63987,
+        "modelLatencyMs": 27125,
+        "toolTimeMs": 1818
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9599410689747985,
+        "toolFailureRate": 0.037037037037037035,
+        "governanceShare": 0.16666666666666666,
+        "modelRounds": 36,
+        "toolCalls": 54,
+        "inputTokens": 705910,
+        "outputTokens": 15943,
+        "reasoningTokens": 10824,
+        "estimatedCostUsd": 0.031680792,
+        "durationMs": 128896,
+        "modelLatencyMs": 77414,
+        "toolTimeMs": 13554
+      }
+    },
+    {
+      "taskId": "django__django-16082",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9784501243110275,
+        "toolFailureRate": 0.09523809523809523,
+        "governanceShare": 0.07142857142857142,
+        "modelRounds": 61,
+        "toolCalls": 84,
+        "inputTokens": 3040760,
+        "outputTokens": 25087,
+        "reasoningTokens": 17914,
+        "estimatedCostUsd": 0.067614192,
+        "durationMs": 198299,
+        "modelLatencyMs": 154921,
+        "toolTimeMs": 5049
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9656279823671096,
+        "toolFailureRate": 0.045454545454545456,
+        "governanceShare": 0.13636363636363635,
+        "modelRounds": 48,
+        "toolCalls": 66,
+        "inputTokens": 1386273,
+        "outputTokens": 17507,
+        "reasoningTokens": 9984,
+        "estimatedCostUsd": 0.043334844,
+        "durationMs": 144217,
+        "modelLatencyMs": 97725,
+        "toolTimeMs": 10997
+      }
+    },
+    {
+      "taskId": "django__django-16139",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9576350056700427,
+        "toolFailureRate": 0.038461538461538464,
+        "governanceShare": 0.15384615384615385,
+        "modelRounds": 33,
+        "toolCalls": 52,
+        "inputTokens": 1022920,
+        "outputTokens": 14126,
+        "reasoningTokens": 9410,
+        "estimatedCostUsd": 0.035829504,
+        "durationMs": 116019,
+        "modelLatencyMs": 76094,
+        "toolTimeMs": 5736
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9808105962200535,
+        "toolFailureRate": 0.0594059405940594,
+        "governanceShare": 0.07920792079207921,
+        "modelRounds": 74,
+        "toolCalls": 101,
+        "inputTokens": 3065546,
+        "outputTokens": 25267,
+        "reasoningTokens": 16660,
+        "estimatedCostUsd": 0.06600852,
+        "durationMs": 209608,
+        "modelLatencyMs": 147941,
+        "toolTimeMs": 24062
+      }
+    },
+    {
+      "taskId": "django__django-16263",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 1,
+        "cacheHitRate": 0.9838213132678673,
+        "toolFailureRate": 0.06666666666666667,
+        "governanceShare": 0.009523809523809525,
+        "modelRounds": 74,
+        "toolCalls": 105,
+        "inputTokens": 3094936,
+        "outputTokens": 61132,
+        "reasoningTokens": 50640,
+        "estimatedCostUsd": 0.106649184,
+        "durationMs": 329606,
+        "modelLatencyMs": 308210,
+        "toolTimeMs": 12297
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9846281662258426,
+        "toolFailureRate": 0.11428571428571428,
+        "governanceShare": 0.009523809523809525,
+        "modelRounds": 71,
+        "toolCalls": 105,
+        "inputTokens": 3081350,
+        "outputTokens": 51744,
+        "reasoningTokens": 40561,
+        "estimatedCostUsd": 0.09450650399999999,
+        "durationMs": 905607,
+        "modelLatencyMs": 256336,
+        "toolTimeMs": 610321
+      }
+    },
+    {
+      "taskId": "django__django-16612",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9518858839708719,
+        "toolFailureRate": 0.13333333333333333,
+        "governanceShare": 0.2,
+        "modelRounds": 31,
+        "toolCalls": 45,
+        "inputTokens": 620982,
+        "outputTokens": 9988,
+        "reasoningTokens": 5451,
+        "estimatedCostUsd": 0.024495624,
+        "durationMs": 107295,
+        "modelLatencyMs": 53567,
+        "toolTimeMs": 4317
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9212286341980082,
+        "toolFailureRate": 0.14705882352941177,
+        "governanceShare": 0.29411764705882354,
+        "modelRounds": 26,
+        "toolCalls": 34,
+        "inputTokens": 267191,
+        "outputTokens": 5493,
+        "reasoningTokens": 2284,
+        "estimatedCostUsd": 0.014382563999999999,
+        "durationMs": 98672,
+        "modelLatencyMs": 31523,
+        "toolTimeMs": 19252
+      }
+    },
+    {
+      "taskId": "django__django-16661",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9646756832135007,
+        "toolFailureRate": 0.15555555555555556,
+        "governanceShare": 0.1111111111111111,
+        "modelRounds": 36,
+        "toolCalls": 45,
+        "inputTokens": 3044107,
+        "outputTokens": 47330,
+        "reasoningTokens": 42286,
+        "estimatedCostUsd": 0.10667475599999998,
+        "durationMs": 260154,
+        "modelLatencyMs": 224155,
+        "toolTimeMs": 2922
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9782320380359233,
+        "toolFailureRate": 0.06153846153846154,
+        "governanceShare": 0.13846153846153847,
+        "modelRounds": 49,
+        "toolCalls": 65,
+        "inputTokens": 2348727,
+        "outputTokens": 51337,
+        "reasoningTokens": 42860,
+        "estimatedCostUsd": 0.09072809999999999,
+        "durationMs": 345055,
+        "modelLatencyMs": 240220,
+        "toolTimeMs": 70829
+      }
+    },
+    {
+      "taskId": "django__django-16901",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9451393047826568,
+        "toolFailureRate": 0.07142857142857142,
+        "governanceShare": 0.21428571428571427,
+        "modelRounds": 26,
+        "toolCalls": 42,
+        "inputTokens": 983491,
+        "outputTokens": 15437,
+        "reasoningTokens": 11367,
+        "estimatedCostUsd": 0.040288116,
+        "durationMs": 110336,
+        "modelLatencyMs": 72969,
+        "toolTimeMs": 4768
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9579225186574916,
+        "toolFailureRate": 0.06896551724137931,
+        "governanceShare": 0.20689655172413793,
+        "modelRounds": 35,
+        "toolCalls": 58,
+        "inputTokens": 914646,
+        "outputTokens": 19371,
+        "reasoningTokens": 12377,
+        "estimatedCostUsd": 0.040047959999999994,
+        "durationMs": 134131,
+        "modelLatencyMs": 90881,
+        "toolTimeMs": 9682
+      }
+    },
+    {
+      "taskId": "matplotlib__matplotlib-13989",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9368238316783557,
+        "toolFailureRate": 0.0975609756097561,
+        "governanceShare": 0.1951219512195122,
+        "modelRounds": 28,
+        "toolCalls": 41,
+        "inputTokens": 504035,
+        "outputTokens": 10381,
+        "reasoningTokens": 5392,
+        "estimatedCostUsd": 0.024843252000000003,
+        "durationMs": 120986,
+        "modelLatencyMs": 53276,
+        "toolTimeMs": 7910
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9469719443021134,
+        "toolFailureRate": 0.07894736842105263,
+        "governanceShare": 0.23684210526315788,
+        "modelRounds": 28,
+        "toolCalls": 38,
+        "inputTokens": 444972,
+        "outputTokens": 8097,
+        "reasoningTokens": 3050,
+        "estimatedCostUsd": 0.019323456,
+        "durationMs": 112422,
+        "modelLatencyMs": 41841,
+        "toolTimeMs": 8856
+      }
+    },
+    {
+      "taskId": "pydata__xarray-6461",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9519996670059674,
+        "toolFailureRate": 0.078125,
+        "governanceShare": 0.09375,
+        "modelRounds": 38,
+        "toolCalls": 64,
+        "inputTokens": 1585614,
+        "outputTokens": 17151,
+        "reasoningTokens": 11884,
+        "estimatedCostUsd": 0.052471224,
+        "durationMs": 145706,
+        "modelLatencyMs": 90318,
+        "toolTimeMs": 12469
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9853635451994908,
+        "toolFailureRate": 0.07058823529411765,
+        "governanceShare": 0.047058823529411764,
+        "modelRounds": 80,
+        "toolCalls": 85,
+        "inputTokens": 2840032,
+        "outputTokens": 41721,
+        "reasoningTokens": 29393,
+        "estimatedCostUsd": 0.079326384,
+        "durationMs": 295459,
+        "modelLatencyMs": 208863,
+        "toolTimeMs": 42381
+      }
+    },
+    {
+      "taskId": "pydata__xarray-6992",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9704288722768967,
+        "toolFailureRate": 0.07246376811594203,
+        "governanceShare": 0.13043478260869565,
+        "modelRounds": 52,
+        "toolCalls": 69,
+        "inputTokens": 2045644,
+        "outputTokens": 21461,
+        "reasoningTokens": 12505,
+        "estimatedCostUsd": 0.055811712,
+        "durationMs": 226591,
+        "modelLatencyMs": 118092,
+        "toolTimeMs": 53393
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9835094428390602,
+        "toolFailureRate": 0.1276595744680851,
+        "governanceShare": 0.11702127659574468,
+        "modelRounds": 74,
+        "toolCalls": 94,
+        "inputTokens": 2945989,
+        "outputTokens": 37871,
+        "reasoningTokens": 25937,
+        "estimatedCostUsd": 0.077403948,
+        "durationMs": 311158,
+        "modelLatencyMs": 196945,
+        "toolTimeMs": 57935
+      }
+    },
+    {
+      "taskId": "pylint-dev__pylint-6528",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9795004952573099,
+        "toolFailureRate": 0.09,
+        "governanceShare": 0.05,
+        "modelRounds": 64,
+        "toolCalls": 100,
+        "inputTokens": 3013585,
+        "outputTokens": 36533,
+        "reasoningTokens": 27138,
+        "estimatedCostUsd": 0.080083548,
+        "durationMs": 242467,
+        "modelLatencyMs": 184383,
+        "toolTimeMs": 19749
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9833059240966849,
+        "toolFailureRate": 0.11382113821138211,
+        "governanceShare": 0.04878048780487805,
+        "modelRounds": 65,
+        "toolCalls": 123,
+        "inputTokens": 3025744,
+        "outputTokens": 44447,
+        "reasoningTokens": 32346,
+        "estimatedCostUsd": 0.08634139199999999,
+        "durationMs": 294666,
+        "modelLatencyMs": 211739,
+        "toolTimeMs": 43492
+      }
+    },
+    {
+      "taskId": "pytest-dev__pytest-5809",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9177722596665484,
+        "toolFailureRate": 0.12,
+        "governanceShare": 0.28,
+        "modelRounds": 18,
+        "toolCalls": 25,
+        "inputTokens": 225520,
+        "outputTokens": 6055,
+        "reasoningTokens": 3331,
+        "estimatedCostUsd": 0.014071055999999998,
+        "durationMs": 73364,
+        "modelLatencyMs": 34322,
+        "toolTimeMs": 1326
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9307345165934691,
+        "toolFailureRate": 0.08333333333333333,
+        "governanceShare": 0.20833333333333334,
+        "modelRounds": 19,
+        "toolCalls": 24,
+        "inputTokens": 165306,
+        "outputTokens": 5919,
+        "reasoningTokens": 3356,
+        "estimatedCostUsd": 0.011460936,
+        "durationMs": 72742,
+        "modelLatencyMs": 32468,
+        "toolTimeMs": 1805
+      }
+    },
+    {
+      "taskId": "pytest-dev__pytest-5840",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9799518458166921,
+        "toolFailureRate": 0.1935483870967742,
+        "governanceShare": 0.053763440860215055,
+        "modelRounds": 60,
+        "toolCalls": 93,
+        "inputTokens": 3024867,
+        "outputTokens": 71529,
+        "reasoningTokens": 63507,
+        "estimatedCostUsd": 0.121813044,
+        "durationMs": 384237,
+        "modelLatencyMs": 328242,
+        "toolTimeMs": 18343
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9767427126084764,
+        "toolFailureRate": 0.13414634146341464,
+        "governanceShare": 0.08536585365853659,
+        "modelRounds": 46,
+        "toolCalls": 82,
+        "inputTokens": 2620039,
+        "outputTokens": 67779,
+        "reasoningTokens": 58586,
+        "estimatedCostUsd": 0.114969924,
+        "durationMs": 358925,
+        "modelLatencyMs": 303616,
+        "toolTimeMs": 18383
+      }
+    },
+    {
+      "taskId": "scikit-learn__scikit-learn-13779",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9659157517532665,
+        "toolFailureRate": 0.1,
+        "governanceShare": 0.2,
+        "modelRounds": 34,
+        "toolCalls": 40,
+        "inputTokens": 962204,
+        "outputTokens": 18424,
+        "reasoningTokens": 13982,
+        "estimatedCostUsd": 0.037524048,
+        "durationMs": 125407,
+        "modelLatencyMs": 89441,
+        "toolTimeMs": 7394
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9201075686409567,
+        "toolFailureRate": 0.15384615384615385,
+        "governanceShare": 0.38461538461538464,
+        "modelRounds": 19,
+        "toolCalls": 26,
+        "inputTokens": 136471,
+        "outputTokens": 2826,
+        "reasoningTokens": 393,
+        "estimatedCostUsd": 0.0074155079999999995,
+        "durationMs": 50993,
+        "modelLatencyMs": 18007,
+        "toolTimeMs": 6082
+      }
+    },
+    {
+      "taskId": "scikit-learn__scikit-learn-25931",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9596414903175717,
+        "toolFailureRate": 0.1891891891891892,
+        "governanceShare": 0.13513513513513514,
+        "modelRounds": 30,
+        "toolCalls": 37,
+        "inputTokens": 802433,
+        "outputTokens": 10833,
+        "reasoningTokens": 6952,
+        "estimatedCostUsd": 0.027335388,
+        "durationMs": 98887,
+        "modelLatencyMs": 57943,
+        "toolTimeMs": 10408
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9787084745664422,
+        "toolFailureRate": 0.08333333333333333,
+        "governanceShare": 0.13333333333333333,
+        "modelRounds": 60,
+        "toolCalls": 60,
+        "inputTokens": 1379516,
+        "outputTokens": 23764,
+        "reasoningTokens": 16877,
+        "estimatedCostUsd": 0.045429264,
+        "durationMs": 188944,
+        "modelLatencyMs": 133001,
+        "toolTimeMs": 22961
+      }
+    },
+    {
+      "taskId": "scikit-learn__scikit-learn-25973",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9640852570113085,
+        "toolFailureRate": 0.08196721311475409,
+        "governanceShare": 0.19672131147540983,
+        "modelRounds": 45,
+        "toolCalls": 61,
+        "inputTokens": 1916511,
+        "outputTokens": 15422,
+        "reasoningTokens": 8511,
+        "estimatedCostUsd": 0.05024178,
+        "durationMs": 146999,
+        "modelLatencyMs": 87201,
+        "toolTimeMs": 26033
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9330964143218844,
+        "toolFailureRate": 0.09375,
+        "governanceShare": 0.25,
+        "modelRounds": 24,
+        "toolCalls": 32,
+        "inputTokens": 460917,
+        "outputTokens": 9635,
+        "reasoningTokens": 5601,
+        "estimatedCostUsd": 0.023393579999999997,
+        "durationMs": 102001,
+        "modelLatencyMs": 52354,
+        "toolTimeMs": 18229
+      }
+    },
+    {
+      "taskId": "scikit-learn__scikit-learn-9288",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9292679830869205,
+        "toolFailureRate": 0.06060606060606061,
+        "governanceShare": 0.30303030303030304,
+        "modelRounds": 23,
+        "toolCalls": 33,
+        "inputTokens": 811443,
+        "outputTokens": 9564,
+        "reasoningTokens": 4352,
+        "estimatedCostUsd": 0.033219588,
+        "durationMs": 251546,
+        "modelLatencyMs": 49859,
+        "toolTimeMs": 169223
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9411839765214409,
+        "toolFailureRate": 0.06451612903225806,
+        "governanceShare": 0.3225806451612903,
+        "modelRounds": 24,
+        "toolCalls": 31,
+        "inputTokens": 376173,
+        "outputTokens": 9493,
+        "reasoningTokens": 5381,
+        "estimatedCostUsd": 0.020153388,
+        "durationMs": 199272,
+        "modelLatencyMs": 48837,
+        "toolTimeMs": 117459
+      }
+    },
+    {
+      "taskId": "sphinx-doc__sphinx-10449",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9360843874737823,
+        "toolFailureRate": 0.06382978723404255,
+        "governanceShare": 0.19148936170212766,
+        "modelRounds": 27,
+        "toolCalls": 47,
+        "inputTokens": 1043188,
+        "outputTokens": 18689,
+        "reasoningTokens": 13458,
+        "estimatedCostUsd": 0.048288672,
+        "durationMs": 127190,
+        "modelLatencyMs": 92703,
+        "toolTimeMs": 7311
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9815742002465772,
+        "toolFailureRate": 0.11956521739130435,
+        "governanceShare": 0.08695652173913043,
+        "modelRounds": 68,
+        "toolCalls": 92,
+        "inputTokens": 3082200,
+        "outputTokens": 35518,
+        "reasoningTokens": 26735,
+        "estimatedCostUsd": 0.07781164800000001,
+        "durationMs": 230249,
+        "modelLatencyMs": 182165,
+        "toolTimeMs": 18791
+      }
+    },
+    {
+      "taskId": "sphinx-doc__sphinx-11445",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9636085848413649,
+        "toolFailureRate": 0.10810810810810811,
+        "governanceShare": 0.10810810810810811,
+        "modelRounds": 55,
+        "toolCalls": 74,
+        "inputTokens": 2360859,
+        "outputTokens": 26840,
+        "reasoningTokens": 18476,
+        "estimatedCostUsd": 0.071632164,
+        "durationMs": 217051,
+        "modelLatencyMs": 148828,
+        "toolTimeMs": 37846
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9779732934760775,
+        "toolFailureRate": 0.08536585365853659,
+        "governanceShare": 0.0975609756097561,
+        "modelRounds": 52,
+        "toolCalls": 82,
+        "inputTokens": 1603054,
+        "outputTokens": 31731,
+        "reasoningTokens": 21402,
+        "estimatedCostUsd": 0.058076664,
+        "durationMs": 295041,
+        "modelLatencyMs": 157917,
+        "toolTimeMs": 105771
+      }
+    },
+    {
+      "taskId": "sympy__sympy-13647",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.940304307535946,
+        "toolFailureRate": 0.10256410256410256,
+        "governanceShare": 0.23076923076923078,
+        "modelRounds": 23,
+        "toolCalls": 39,
+        "inputTokens": 669060,
+        "outputTokens": 9137,
+        "reasoningTokens": 4787,
+        "estimatedCostUsd": 0.02672112,
+        "durationMs": 107542,
+        "modelLatencyMs": 48146,
+        "toolTimeMs": 29445
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.964595141887581,
+        "toolFailureRate": 0.13333333333333333,
+        "governanceShare": 0.17777777777777778,
+        "modelRounds": 35,
+        "toolCalls": 45,
+        "inputTokens": 757043,
+        "outputTokens": 16473,
+        "reasoningTokens": 9754,
+        "estimatedCostUsd": 0.03218994,
+        "durationMs": 153329,
+        "modelLatencyMs": 86266,
+        "toolTimeMs": 36533
+      }
+    },
+    {
+      "taskId": "sympy__sympy-14531",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9758062024902302,
+        "toolFailureRate": 0.06578947368421052,
+        "governanceShare": 0.09210526315789473,
+        "modelRounds": 55,
+        "toolCalls": 76,
+        "inputTokens": 3010565,
+        "outputTokens": 32794,
+        "reasoningTokens": 23389,
+        "estimatedCostUsd": 0.078830268,
+        "durationMs": 213181,
+        "modelLatencyMs": 165810,
+        "toolTimeMs": 19989
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 0,
+        "emptyPatch": 1,
+        "cacheHitRate": 0.860011066318868,
+        "toolFailureRate": 0.13043478260869565,
+        "governanceShare": 0.043478260869565216,
+        "modelRounds": 12,
+        "toolCalls": 23,
+        "inputTokens": 227718,
+        "outputTokens": 8038,
+        "reasoningTokens": 6584,
+        "estimatedCostUsd": 0.02038404,
+        "durationMs": 41127,
+        "modelLatencyMs": 37883,
+        "toolTimeMs": 473
+      }
+    },
+    {
+      "taskId": "sympy__sympy-15345",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9658778956928588,
+        "toolFailureRate": 0.17543859649122806,
+        "governanceShare": 0.15789473684210525,
+        "modelRounds": 38,
+        "toolCalls": 57,
+        "inputTokens": 827997,
+        "outputTokens": 16417,
+        "reasoningTokens": 9899,
+        "estimatedCostUsd": 0.032974764000000004,
+        "durationMs": 126396,
+        "modelLatencyMs": 83679,
+        "toolTimeMs": 16345
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9797654187802695,
+        "toolFailureRate": 0.13636363636363635,
+        "governanceShare": 0.18181818181818182,
+        "modelRounds": 42,
+        "toolCalls": 66,
+        "inputTokens": 1089175,
+        "outputTokens": 24514,
+        "reasoningTokens": 17226,
+        "estimatedCostUsd": 0.042431316,
+        "durationMs": 164892,
+        "modelLatencyMs": 118587,
+        "toolTimeMs": 20077
+      }
+    },
+    {
+      "taskId": "sympy__sympy-17630",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9823375446770477,
+        "toolFailureRate": 0.0641025641025641,
+        "governanceShare": 0.0641025641025641,
+        "modelRounds": 65,
+        "toolCalls": 78,
+        "inputTokens": 3033157,
+        "outputTokens": 32705,
+        "reasoningTokens": 24528,
+        "estimatedCostUsd": 0.07319540399999999,
+        "durationMs": 212701,
+        "modelLatencyMs": 172464,
+        "toolTimeMs": 12674
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9823656188719719,
+        "toolFailureRate": 0.07792207792207792,
+        "governanceShare": 0.05194805194805195,
+        "modelRounds": 68,
+        "toolCalls": 77,
+        "inputTokens": 3068381,
+        "outputTokens": 41100,
+        "reasoningTokens": 30500,
+        "estimatedCostUsd": 0.083638332,
+        "durationMs": 876778,
+        "modelLatencyMs": 206295,
+        "toolTimeMs": 643309
+      }
+    },
+    {
+      "taskId": "sympy__sympy-20916",
+      "a": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.953751112799062,
+        "toolFailureRate": 0.10810810810810811,
+        "governanceShare": 0.1891891891891892,
+        "modelRounds": 29,
+        "toolCalls": 37,
+        "inputTokens": 574003,
+        "outputTokens": 11900,
+        "reasoningTokens": 7771,
+        "estimatedCostUsd": 0.025528836,
+        "durationMs": 167750,
+        "modelLatencyMs": 64711,
+        "toolTimeMs": 77659
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 0,
+        "falseSuccess": 1,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9716088935377626,
+        "toolFailureRate": 0.07142857142857142,
+        "governanceShare": 0.14285714285714285,
+        "modelRounds": 49,
+        "toolCalls": 56,
+        "inputTokens": 1246658,
+        "outputTokens": 16761,
+        "reasoningTokens": 10480,
+        "estimatedCostUsd": 0.037998984,
+        "durationMs": 157781,
+        "modelLatencyMs": 93631,
+        "toolTimeMs": 37404
+      }
+    },
+    {
+      "taskId": "sympy__sympy-21847",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9474658979024879,
+        "toolFailureRate": 0.1,
+        "governanceShare": 0.23333333333333334,
+        "modelRounds": 22,
+        "toolCalls": 30,
+        "inputTokens": 649007,
+        "outputTokens": 11062,
+        "reasoningTokens": 6526,
+        "estimatedCostUsd": 0.027192372,
+        "durationMs": 130201,
+        "modelLatencyMs": 53572,
+        "toolTimeMs": 51190
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9618167363949539,
+        "toolFailureRate": 0.05714285714285714,
+        "governanceShare": 0.17142857142857143,
+        "modelRounds": 29,
+        "toolCalls": 35,
+        "inputTokens": 498124,
+        "outputTokens": 12806,
+        "reasoningTokens": 8107,
+        "estimatedCostUsd": 0.023947824,
+        "durationMs": 139859,
+        "modelLatencyMs": 64302,
+        "toolTimeMs": 50287
+      }
+    },
+    {
+      "taskId": "sympy__sympy-24539",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9520513850630549,
+        "toolFailureRate": 0.14893617021276595,
+        "governanceShare": 0.2127659574468085,
+        "modelRounds": 31,
+        "toolCalls": 47,
+        "inputTokens": 624773,
+        "outputTokens": 8852,
+        "reasoningTokens": 3620,
+        "estimatedCostUsd": 0.023178396,
+        "durationMs": 241046,
+        "modelLatencyMs": 49083,
+        "toolTimeMs": 166089
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9160636398450284,
+        "toolFailureRate": 0.06666666666666667,
+        "governanceShare": 0.2,
+        "modelRounds": 20,
+        "toolCalls": 30,
+        "inputTokens": 201069,
+        "outputTokens": 5650,
+        "reasoningTokens": 2204,
+        "estimatedCostUsd": 0.012948252,
+        "durationMs": 752095,
+        "modelLatencyMs": 29559,
+        "toolTimeMs": 697430
+      }
+    },
+    {
+      "taskId": "sympy__sympy-24562",
+      "a": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9624203536966314,
+        "toolFailureRate": 0.15384615384615385,
+        "governanceShare": 0.23076923076923078,
+        "modelRounds": 34,
+        "toolCalls": 52,
+        "inputTokens": 1006795,
+        "outputTokens": 23834,
+        "reasoningTokens": 17875,
+        "estimatedCostUsd": 0.045765059999999996,
+        "durationMs": 811354,
+        "modelLatencyMs": 110849,
+        "toolTimeMs": 671348
+      },
+      "b": {
+        "runs": 1,
+        "resolved": 1,
+        "falseSuccess": 0,
+        "emptyPatch": 0,
+        "cacheHitRate": 0.9615518062178758,
+        "toolFailureRate": 0.15,
+        "governanceShare": 0.275,
+        "modelRounds": 30,
+        "toolCalls": 40,
+        "inputTokens": 495732,
+        "outputTokens": 13148,
+        "reasoningTokens": 7660,
+        "estimatedCostUsd": 0.024355632,
+        "durationMs": 711759,
+        "modelLatencyMs": 64048,
+        "toolTimeMs": 619267
+      }
+    }
+  ]
+}

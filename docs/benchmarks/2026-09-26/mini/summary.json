@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 1,
+  "kind": "swebench_summary",
+  "note": "A/B claims come only from `npm run eval:compare` on paired variants. A single-variant run is a diagnostic of one configuration, not a comparison.",
+  "evaluationId": "swebench-dev-2026-09-25T22-25-30-604Z-9f5f1d",
+  "split": "dev",
+  "model": "deepseek-flash",
+  "variants": [
+    "baseline",
+    "ctx-sandbox"
+  ],
+  "complete": true,
+  "stopReason": null,
+  "completeness": {
+    "flags": [],
+    "plannedRuns": 300,
+    "observedRuns": 300,
+    "scoredRuns": 300,
+    "missingRuns": 0,
+    "unplannedRuns": 0,
+    "capReached": false,
+    "circuitOpen": false,
+    "invalidResultRuns": 0,
+    "harnessErrorRuns": 0,
+    "gradingErrorRuns": 0,
+    "providerErrorRuns": 0,
+    "environmentFailureRuns": 1,
+    "patchCausedRuns": {
+      "test_timeout": 0,
+      "oom": 0,
+      "tests_errored": 0
+    }
+  },
+  "scoredRuns": 300,
+  "resolved": {
+    "runs": 300,
+    "resolved": 216,
+    "rate": 0.72,
+    "ci95": [
+      0.6066666666666667,
+      0.8266666666666667
+    ]
+  },
+  "byRepo": {
+    "django/django": {
+      "runs": 150,
+      "resolved": 124,
+      "rate": 0.8266666666666667,
+      "ci95": [
+        0.6933333333333335,
+        0.94
+      ]
+    },
+    "sphinx-doc/sphinx": {
+      "runs": 150,
+      "resolved": 92,
+      "rate": 0.6133333333333333,
+      "ci95": [
+        0.44,
+        0.7866666666666667
+      ]
+    }
+  },
+  "byDifficulty": {
+    "1-4 hours": {
+      "runs": 42,
+      "resolved": 12,
+      "rate": 0.2857142857142857,
+      "ci95": [
+        0.07142857142857142,
+        0.5714285714285714
+      ]
+    },
+    "15 min - 1 hour": {
+      "runs": 138,
+      "resolved": 96,
+      "rate": 0.6956521739130435,
+      "ci95": [
+        0.5217391304347826,
+        0.8623188405797101
+      ]
+    },
+    "<15 min fix": {
+      "runs": 114,
+      "resolved": 108,
+      "rate": 0.9473684210526315,
+      "ci95": [
+        0.868421052631579,
+        1
+      ]
+    },
+    ">4 hours": {
+      "runs": 6,
+      "resolved": 0,
+      "rate": 0,
+      "ci95": [
+        0,
+        0
+      ]
+    }
+  },
+  "falseSuccess": {
+    "runs": 300,
+    "count": 8,
+    "rate": 0.02666666666666667
+  },
+  "claims": {
+    "claimedResolved": 175,
+    "claimedUnresolved": 8,
+    "unclaimedResolved": 41,
+    "unclaimedUnresolved": 76
+  },
+  "patches": {
+    "emptyPatchRuns": 32,
+    "emptyPatchRate": 0.10666666666666667,
+    "applyFailures": 0
+  },
+  "efficiency": {
+    "modelRounds": {
+      "mean": 42.373333333333335,
+      "p50": 42,
+      "p95": 68,
+      "max": 80
+    },
+    "toolCalls": {
+      "mean": 60.74,
+      "p50": 61,
+      "p95": 98,
+      "max": 115
+    },
+    "inputTokens": {
+      "mean": 1788939.1833333333,
+      "p50": 1688988,
+      "p95": 3090604,
+      "max": 3130508
+    },
+    "outputTokens": {
+      "mean": 27224.47,
+      "p50": 23132,
+      "p95": 58249,
+      "max": 95156
+    },
+    "reasoningTokens": {
+      "mean": 21027.6,
+      "p50": 16780,
+      "p95": 50375,
+      "max": 87274
+    },
+    "estimatedCostUsd": {
+      "mean": 0.05878661084000001,
+      "p50": 0.055544555999999995,
+      "p95": 0.10710868800000001,
+      "max": 0.146586816
+    },
+    "durationMs": {
+      "mean": 198263.79666666666,
+      "p50": 157899,
+      "p95": 466763,
+      "max": 1428639
+    },
+    "cacheHitRate": 0.9707507049499009
+  },
+  "totals": {
+    "inputTokens": 536681755,
+    "outputTokens": 8167341,
+    "cacheHitInputTokens": 520984192,
+    "cacheMissInputTokens": 15697563,
+    "reasoningTokens": 6308280,
+    "measuredCostUsd": 17.635983252000003,
+    "retryCostUsd": 0,
+    "supersededChargeUsd": 0,
+    "unfinishedChargeUsd": 0,
+    "totalSpendUsd": 17.635983252000003,
+    "capChargedUsd": 17.635983252000003,
+    "costPerResolvedUsd": 0.08164807061111112
+  },
+  "responseModels": [
+    "deepseek-flash"
+  ],
+  "failureClasses": {
+    "agent_budget_exhausted": 44,
+    "empty_patch": 31,
+    "false_success": 8,
+    "environment_failure": 1
+  },
+  "perVariant": [
+    {
+      "variant": "baseline",
+      "plannedRuns": 150,
+      "observedRuns": 150,
+      "runs": 150,
+      "resolved": 108,
+      "rate": 0.72,
+      "ci95": [
+        0.6000000000000001,
+        0.8266666666666667
+      ],
+      "falseSuccessRate": 0.013333333333333334,
+      "emptyPatchRate": 0.11333333333333333,
+      "meanCostUsd": 0.06242673928000002,
+      "meanModelRounds": 41.593333333333334,
+      "totalCostUsd": 9.364010892000003
+    },
+    {
+      "variant": "ctx-sandbox",
+      "plannedRuns": 150,
+      "observedRuns": 150,
+      "runs": 150,
+      "resolved": 108,
+      "rate": 0.72,
+      "ci95": [
+        0.6066666666666667,
+        0.8333333333333333
+      ],
+      "falseSuccessRate": 0.04,
+      "emptyPatchRate": 0.1,
+      "meanCostUsd": 0.055146482399999995,
+      "meanModelRounds": 43.153333333333336,
+      "totalCostUsd": 8.27197236
+    }
+  ]
+}
