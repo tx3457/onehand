@@ -13,12 +13,12 @@ Measured with the same model (`deepseek-flash`) and budgets in one pre-registere
 | Verified Mini (dev set), 50 tasks × 3 runs | 72.0% → 72.0% (non-inferior at a 10 pp margin) | **−20.7%** (−28.0% to −13.1%) |
 | Holdout (never used in development), 46 tasks × 1 run | 73.9% → 78.3% (non-inferior at a 10 pp margin) | **−16.1%** (−28.1% to −2.5%) |
 
-`ctx-sandbox` combines three measured changes. Each is backed by a mechanism metric:
+`ctx-sandbox` bundles three changes. The descriptive mechanism shifts below come from the same final window; component effects are not isolated:
 - Line-numbered, byte-bounded file windows and grouped search: tokens per `read_file` fall from about 2.7–3.1k to about 1.0k.
 - Compact plain-text observations.
-- A sandbox-aware command policy: the `run_command` failure rate falls by 41–48% (45.4% → 23.6% on Mini, 34.8% → 20.6% on the holdout).
+- A sandbox-aware command policy: the `run_command` policy-rejection rate roughly halves (31.8% → 16.5% on Mini, 25.4% → 13.9% on the holdout).
 
-The resolved rate did not detectably change. Development-stage experiments that did not pay off (observation masking was 32% more expensive; lean planning and an explore sub-agent gave no gain) are reported in the same document. For reference, mini-swe-agent 2.4.6, run with the same model under matching limits, resolved 72% on Mini at $0.059 per run. This is descriptive only, not a controlled comparison.
+The resolved rate did not detectably change. It is non-inferior at a 10 pp margin, but the CIs allow small losses. Development-stage experiments that did not pay off (observation masking was 32% more expensive; lean planning and an explore sub-agent gave no gain) are reported in the same document. For reference, mini-swe-agent 2.4.6, run with the same model, the same 80-step ceiling and a $1.08 cost cap matched to OneHand's worst-case run cost, resolved 72% on Mini at $0.059 per run. This is descriptive only, not a controlled comparison.
 
 ## What is implemented
 

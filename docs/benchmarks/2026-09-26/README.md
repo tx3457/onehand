@@ -1,15 +1,15 @@
 # OneHand on SWE-bench Verified: final evaluation, 2026-09-26
 
-This is the pre-registered final window. Hypotheses, arms, metrics and tests were committed in [preregistration.md](preregistration.md) (commit `e30b568`) before any baseline or ctx-sandbox run of this window. Every number below comes from this window unless it is marked as development-stage.
+This is the pre-registered final window. Hypotheses, arms, metrics and tests were committed in [preregistration.md](preregistration.md) (commit `e30b568`) before any baseline or ctx-sandbox run of this window. Every number below comes from this window, with these exceptions, each labeled where it appears: development-stage findings (their artifacts are in [dev/](dev/)), the external reference, and the project-wide spend.
 
 ## Result
 
-With the same model and budgets, the context-engineering and sandbox-policy profile (`ctx-sandbox`) lowered the cost per run without lowering the resolved rate, on both the development set and the untouched holdout.
+With the same model and budgets, the context-engineering and sandbox-policy profile (`ctx-sandbox`) lowered the cost per run on both the development set and the untouched holdout. It was non-inferior in resolved rate at the pre-specified 10 pp margin. The resolved-rate CIs still allow losses of up to 4.7 pp (Mini) and 6.5 pp (holdout).
 
 | dataset | runs | resolved: baseline → ctx-sandbox | resolved Δ (95% CI) | cost per run: baseline → ctx-sandbox | cost change (95% CI) |
 |---|---:|---|---|---|---|
 | Mini (dev), 50 tasks × 3 reps | 300 | 72.0% → 72.0% | +0.0 pp (−4.7, +4.7): **non-inferior** | $0.0624 → $0.0551 | **−20.7% (−28.0%, −13.1%)**, Holm p = 2e-4 |
-| Holdout, 46 tasks × 1 rep | 92 | 73.9% → 78.3% | +4.3 pp (−6.5, +15.2): **non-inferior** | $0.0551 → $0.0488 | **−16.1% (−28.1%, −2.5%)**, p = 0.020 (< 0.025, the first Holm step) |
+| Holdout, 46 tasks × 1 rep | 92 | 73.9% → 78.3% | +4.3 pp (−6.5, +15.2): **non-inferior** | $0.0551 → $0.0488 | **−16.1% (−28.1%, −2.5%)**, p = 0.020 (below 0.025, so it passes at either position of the pre-registered two-test Holm family) |
 | Pooled, 96 tasks (secondary) | 392 | | +2.1 pp (−3.5, +7.6) | | |
 
 Both pre-registered primary tests pass on both datasets. The resolved rate did **not** detectably improve, so no accuracy gain is claimed.
@@ -30,8 +30,8 @@ Both pre-registered primary tests pass on both datasets. The resolved rate did *
   - Containers run with no network and as a non-root user.
 - **Grading:** the official harness (`swebench` 5.0.2).
 - **Scheduling:** both arms interleaved within each window, with the arm order randomized per task and repetition. Each run gets a cache-isolation nonce.
-  - The Mini window ran 2026-09-25 22:25 → 2026-09-26 02:27 UTC.
-  - The holdout window ran 2026-09-26 11:54 → 13:15 UTC.
+  - The Mini window ran 2026-09-25 22:25 → 2026-09-26 02:44 UTC.
+  - The holdout window ran 2026-09-26 11:54 → 13:29 UTC.
 - **Code:** both windows ran on the frozen, clean commit `e30b568` (source fingerprint `55b7442f…`).
 
 **Arms**
@@ -60,13 +60,14 @@ The three changes in B:
 | Wall time | +9.2% (−3.7, +24.5) | +14.5% (−3.7, +36.5) |
 | Tool time | +109% (+43, +214) | +82% (+22, +175) |
 
-**Mechanism metrics.** These show that each change did what it was meant to. Figures are baseline → ctx-sandbox.
+**Mechanism metrics.** These are descriptive shifts for the bundled profile. Individual component effects are not isolated: E4 and E3 share the read metric. Figures are baseline → ctx-sandbox.
 
 | mechanism | Mini | Holdout |
 |---|---|---|
 | read_file tokens per read (E4/E3) | 3,064 → 1,057 | 2,702 → 1,003 |
 | read_file share of cumulative input | 39.1% → 30.2% | 32.9% → 25.5% |
-| run_command failure rate, mostly policy rejections (E8) | 45.4% → 23.6% | 34.8% → 20.6% |
+| run_command policy-rejection rate, as pre-registered (E8) | 31.8% → 16.5% | 25.4% → 13.9% |
+| run_command failure rate, all causes | 45.4% → 23.6% | 34.8% → 20.6% |
 
 B runs more commands, such as inline Python checks, so tool time goes up. The model spends less time per turn, so the overall wall-time change is not significant.
 
@@ -85,7 +86,7 @@ These came from single runs on the 25-task dev subset. They informed which chang
 
 | change | dev result | kept? |
 |---|---|---|
-| E5 observation masking | cost +31.7% (+3.8, +70.6); rounds +24.8%; 5 runs hit the step budget | no. With 96% prompt-cache hits, masking removed cheap context and made the model re-explore. |
+| E5 observation masking | cost +31.7% (+3.8, +70.6); rounds +24.8% (70 of 75 runs; the evaluation process crashed, a bug fixed before the final window) | no. Our interpretation: with about 96% prompt-cache hits, masking removed context that was cheap to keep, and the model spent extra rounds re-exploring. |
 | E1 lean planning | plan-bookkeeping share −6.0 pp, but cost +5.4% (−14.3, +32.9); rounds not reduced | no |
 | E9 explore sub-agent | the model never called it | no; kept as an interactive feature |
 
@@ -94,9 +95,12 @@ These came from single runs on the 25-task dev subset. They informed which chang
 1. **Four holdout instances were excluded.**
    - `psf__requests-2317` failed the pipeline self-check: its gold patch was unresolved on 2 of 2 gradings, because the image's `requests` is not an editable install. This exclusion follows the pre-registered rule.
    - `matplotlib__matplotlib-22719`, `-23412` and `-26113` were excluded because their images could not be downloaded: every pull failed with `unexpected EOF` from ghcr.io, over several hours of retries. This was not anticipated by the pre-registration.
-   - The holdout therefore has 46 tasks, with matplotlib reduced from 4 tasks to 1.
-2. **Holm correction set.** `eval:compare`'s built-in Holm family is {cost, rounds}. The pre-registered family is {cost, resolved non-inferiority}, and the results above are read against the pre-registered one. Both tests pass under either family.
-3. **Timing.** The holdout window ran about 9.5 hours after the Mini window ended, both inside the same weekend off-peak period. The response model was identical throughout.
+   - The holdout therefore has 46 tasks, with matplotlib reduced from 4 tasks to 1. The download failures come from the operator's pull logs, which are not published.
+2. **Holm correction set.** `eval:compare`'s built-in Holm family is {cost, rounds}. The pre-registered family is {cost, resolved non-inferiority}, and the results above are read against the pre-registered one.
+   - In the built-in family, cost passes (Holm p 2e-4 on Mini, 0.039 on the holdout) and rounds does not (0.58 and 0.22).
+   - Resolved non-inferiority is judged by the pre-registered CI criterion: the lower bound must lie above −10 pp.
+3. **Timing.** The holdout window started 9 hours 10 minutes after the Mini window ended, both inside the same weekend off-peak period. The response model was identical throughout.
+4. **Holdout cost cap.** At the account owner's direction, the cap was raised from the pre-registered $15 to $30. Actual holdout spend was $4.78, so the cap never bound.
 
 ## Limitations
 
@@ -104,11 +108,11 @@ These came from single runs on the 25-task dev subset. They informed which chang
 - **Sample size.** 50 + 46 tasks give wide resolved-rate intervals: the study can rule out a loss of 10 pp but cannot detect small gains.
 - **Cost is an estimate.** It is computed from token usage at list prices. Actual billing is off-peak and in CNY.
 - **Mini's optimization bias,** as noted above. The holdout mitigates it.
-- **Not comparable to published scores.** DeepSeek's published SWE-bench Verified scores use an undisclosed harness, the full 500 tasks, and a possibly different model version (the API alias maps to V4.1-Flash).
+- **Not comparable to published scores.** DeepSeek's published SWE-bench Verified scores for V4-Flash ([model card](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash)) name no harness and cover all 500 tasks. They may also be for a different model version: DeepSeek's pricing page listed the `deepseek-flash` alias as V4.1-Flash when checked on 2026-09-25.
 
 ## Spend
 
-API spend for the whole project, from the account balance, was about **¥123** (DeepSeek bills in CNY):
+API spend for the whole project was about **¥123**. DeepSeek bills in CNY, and this figure comes from the account balance, not from these artifacts. The peak-basis estimates in the table come from the evaluation rows; the development total is in the development artifacts, partly unpublished.
 
 | part | runs | peak-basis estimate |
 |---|---:|---:|
