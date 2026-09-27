@@ -1,6 +1,6 @@
 {
   "name": "onehand",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A recoverable local coding agent with explicit planning, verified completion, and OpenAI/DeepSeek tool use.",
   "type": "module",
   "bin": {

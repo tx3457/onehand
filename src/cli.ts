@@ -17,7 +17,7 @@ const program = new Command();
 program
   .name("onehand")
   .description("A lightweight local repository coding-agent CLI.")
-  .version("0.2.0");
+  .version("0.3.0");
 
 program
   .command("run")
