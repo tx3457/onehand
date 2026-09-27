@@ -1,0 +1,173 @@
+[
+  {
+    "dataset": "mini",
+    "runs": 300,
+    "classes": {
+      "resolved": 216,
+      "runtime_error": 1,
+      "claimed_success_right_file": 8,
+      "budget_test_files_only": 8,
+      "budget_right_file": 33,
+      "budget_no_patch": 31,
+      "budget_wrong_file": 3
+    },
+    "by_arm": {
+      "baseline": {
+        "resolved": 108,
+        "_budget_exhausted": 64,
+        "claimed_success_right_file": 2,
+        "budget_test_files_only": 6,
+        "budget_right_file": 16,
+        "budget_no_patch": 17,
+        "budget_wrong_file": 1
+      },
+      "ctx-sandbox": {
+        "resolved": 108,
+        "_budget_exhausted": 52,
+        "runtime_error": 1,
+        "budget_right_file": 17,
+        "budget_no_patch": 14,
+        "claimed_success_right_file": 6,
+        "budget_wrong_file": 2,
+        "budget_test_files_only": 2
+      }
+    },
+    "by_difficulty": {
+      "15 min - 1 hour": {
+        "runs": 138,
+        "resolved": 96,
+        "budget_exhausted": 58
+      },
+      "<15 min fix": {
+        "runs": 114,
+        "resolved": 108,
+        "budget_exhausted": 16
+      },
+      "1-4 hours": {
+        "runs": 42,
+        "resolved": 12,
+        "budget_exhausted": 36
+      },
+      ">4 hours": {
+        "runs": 6,
+        "resolved": 0,
+        "budget_exhausted": 6
+      }
+    },
+    "unresolved_scored_tests": {
+      "f2p_fail+p2p_pass": 41,
+      "f2p_pass+p2p_fail": 4,
+      "f2p_fail+p2p_none": 3,
+      "f2p_fail+p2p_fail": 4
+    },
+    "budget_exhausted": {
+      "runs": 116,
+      "median_rounds": 59.0,
+      "resolved_anyway": 41,
+      "resolved_anyway_verification_passed": 35,
+      "resolved_anyway_plan_open": 37,
+      "median_rounds_after_last_patch_write_when_resolved": 7,
+      "stop_reasons": {
+        "token_budget": 115,
+        "step_budget": 1
+      }
+    },
+    "runtime_errors": [
+      "Execution environment failure: docker exec failed with exit 127: OCI runtime exec failed: exec failed: unable to start container process: chdir to cwd (\"/testbed/.scratch\") set in config.json failed: "
+    ],
+    "wrong_file": {
+      "runs": 11,
+      "read_a_reference_file": 11
+    },
+    "unknown_tool_calls": 2,
+    "tasks": {
+      "always": 30,
+      "sometimes": 11,
+      "never": 9
+    }
+  },
+  {
+    "dataset": "holdout",
+    "runs": 92,
+    "classes": {
+      "resolved": 70,
+      "claimed_success_right_file": 9,
+      "budget_right_file": 5,
+      "claimed_success_wrong_file": 2,
+      "budget_test_files_only": 3,
+      "budget_no_patch": 2,
+      "runtime_error": 1
+    },
+    "by_arm": {
+      "ctx-sandbox": {
+        "resolved": 36,
+        "_budget_exhausted": 11,
+        "claimed_success_right_file": 5,
+        "claimed_success_wrong_file": 1,
+        "budget_test_files_only": 2,
+        "budget_right_file": 1,
+        "runtime_error": 1
+      },
+      "baseline": {
+        "resolved": 34,
+        "_budget_exhausted": 15,
+        "claimed_success_right_file": 4,
+        "budget_right_file": 4,
+        "claimed_success_wrong_file": 1,
+        "budget_no_patch": 2,
+        "budget_test_files_only": 1
+      }
+    },
+    "by_difficulty": {
+      "15 min - 1 hour": {
+        "runs": 44,
+        "resolved": 32,
+        "budget_exhausted": 14
+      },
+      "<15 min fix": {
+        "runs": 38,
+        "resolved": 34,
+        "budget_exhausted": 5
+      },
+      "1-4 hours": {
+        "runs": 8,
+        "resolved": 4,
+        "budget_exhausted": 7
+      },
+      ">4 hours": {
+        "runs": 2,
+        "resolved": 0,
+        "budget_exhausted": 0
+      }
+    },
+    "unresolved_scored_tests": {
+      "f2p_pass+p2p_fail": 4,
+      "f2p_fail+p2p_pass": 15
+    },
+    "budget_exhausted": {
+      "runs": 26,
+      "median_rounds": 61.5,
+      "resolved_anyway": 16,
+      "resolved_anyway_verification_passed": 13,
+      "resolved_anyway_plan_open": 12,
+      "median_rounds_after_last_patch_write_when_resolved": 12.0,
+      "stop_reasons": {
+        "token_budget": 25,
+        "step_budget": 1
+      }
+    },
+    "runtime_errors": [
+      "Execution environment failure: docker exec failed with exit 127: OCI runtime exec failed: exec failed: unable to start container process: chdir to cwd (\"/testbed/.scratch\") set in config.json failed: "
+    ],
+    "wrong_file": {
+      "runs": 5,
+      "read_a_reference_file": 5
+    },
+    "unknown_tool_calls": 2,
+    "tasks": {
+      "always": 32,
+      "never": 8,
+      "sometimes": 6
+    }
+  }
+]
