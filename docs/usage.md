@@ -111,24 +111,26 @@ Run/evaluation IDs must appear in the configured directories; artifact reads are
 
 ## Agent profiles
 
-The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support seven named profiles:
+The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants` support nine named profiles:
 
 - `baseline`: unchanged tool definitions, prompts, JSON observations, and command policy.
 - `ctx`: windowed, numbered reads; grouped search and gitignore-aware directory listings (E4); compact text observations (E3).
+- `ctx-notices`: `ctx` plus experimental budget and verified-stability notices (E11). It can run locally, but has not yet been evaluated.
 - `ctx-sandbox`: `ctx` plus inline Python/Node and read-only git/grep/sed commands in an isolated container (E8). Requires a Docker executor; local executors reject it.
+- `ctx-sandbox-notices`: `ctx-sandbox` plus experimental budget and verified-stability notices (E11). It requires a Docker executor and has not yet been evaluated.
 - `ctx-sandbox-mask`: `ctx-sandbox` plus deterministic observation masking (E5). When the previous response reports more than 48,000 prompt tokens, retain the newest complete tool rounds within a 48 KiB serialized-history budget (at least 2, at most 10). Assistant text, reasoning, and tool results all count toward that budget; the minimum 2 rounds may exceed it. Apply a masking block only if the full history, including its replacement context note, shrinks by at least 32 KiB. Otherwise history and note placement remain untouched, preserving the prompt-cache prefix. A real event refreshes the plan/modified-files note, checkpoints masked history, and traces `bytesRemoved`, `bytesKept`, and `keptRounds`.
 - `full`: `ctx-sandbox-mask` plus lean planning (E1): atomic batched `update_plan`, transactional `finish_task stepEvidence`, pre-plan tests and read-only inspection, and content-based mutation tracking.
 - `ctx-sandbox-plan`: `ctx-sandbox` plus lean planning (E1), without observation masking.
 - `ctx-sandbox-plan-explore`: `ctx-sandbox-plan` plus the isolated, budget-sharing `explore` sub-agent (E9).
 
-Feature flags are validated booleans and default to false. Unknown flags are rejected. Local `run` and `chat` default to `ctx`; all `sandboxCommands` profiles require a Docker executor.
+Feature flags are validated booleans and default to false. Unknown flags are rejected. Local `run` and `chat` still default to `ctx`; `ctx-notices` is the only new notice profile accepted locally, while all `sandboxCommands` profiles require a Docker executor.
 
-All five historical profiles retain their original prompts, tool schemas, and behavior fingerprints. The two `ctx-sandbox-plan` profiles have distinct fingerprints and are included in normal `PROFILES` enumeration. Masking makes no extra model calls and does not discount token budgets. Lean-planning profiles hash their effective lean prompt and tool schemas in their behavior fingerprints.
+All seven v0.3.0 profiles retain their original prompts, tool schemas, and behavior fingerprints. The two notice profiles have distinct fingerprints that include their effective prompt and fixed runtime notice templates. The two `ctx-sandbox-plan` profiles remain included in normal `PROFILES` enumeration. Masking makes no extra model calls and does not discount token budgets. Lean-planning profiles hash their effective lean prompt and tool schemas in their behavior fingerprints.
 
 ## What is implemented
 
 - OpenAI Responses and DeepSeek providers, schema-validated repository tools, verified completion, and step/token/time/retry budgets.
-- Seven profiles with experiment flags for retrieval (E4), compact observations (E3), sandbox commands (E8), masking (E5), lean planning (E1), and explore (E9). Local `run` and `chat` default to `ctx`; `--profile baseline` remains available.
+- Nine profiles with experiment flags for retrieval (E4), compact observations (E3), sandbox commands (E8), masking (E5), lean planning (E1), explore (E9), and budget notices (E11). E11 has not yet been evaluated. Local `run` and `chat` default to `ctx`; `--profile baseline` remains available.
 - `onehand chat` with ask/edit/auto modes, approvals, cancellation, profile/model switching, token totals, and estimated USD for catalogued models.
 - Shadow-Git checkpoints with undo/rewind, plus resumable run state and redacted traces.
 - Root `AGENTS.md` / `ONEHAND.md` instructions, session context, and optional MCP servers with tool permissions.

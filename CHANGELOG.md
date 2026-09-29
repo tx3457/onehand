@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added the opt-in `budgetNotices` flag and experimental E11 `ctx-notices` and `ctx-sandbox-notices` profiles. E11 has not yet been evaluated, and the local default remains `ctx`.
+
 ### Fixed
 
 - In the Docker executor, a command `cwd` that does not exist in the container now returns a recoverable tool error instead of ending the run as an environment failure (post-hoc failure-analysis finding 6).

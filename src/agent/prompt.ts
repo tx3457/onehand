@@ -14,10 +14,11 @@ Core workflow:
 - Mark every plan step completed with evidence, then call finish_task. A normal assistant message is not a completion signal.
 - Final reports must describe only actual tool results: changed files, commands/tests run, pass/fail state, and remaining risks.`;
 
+const BUDGET_NOTICE_PROMPT = "- The runtime posts budget notices as user messages: the share of the run budget used, and whether the latest change is verified and stable. Every round resends the whole history, so late rounds cost the most. When a notice says the latest change is verified and stable and the task is done, mark the remaining plan steps completed with evidence and call finish_task instead of exploring further.";
+
 export function effectiveSystemPrompt(features: Partial<AgentFeatures> = {}): string {
-  if (!features.leanPlanning) return SYSTEM_PROMPT;
-  return SYSTEM_PROMPT
-    .replace(
+  const prompt = features.leanPlanning
+    ? SYSTEM_PROMPT.replace(
       "- Before any repository mutation or command, call set_plan with a concise 1-8 step plan.",
       "- Inspect and reproduce freely before planning: run_tests and sandbox read-only inspection commands are allowed even while replanning is required; call set_plan before editing or running inline code or other commands, with a concise 1-8 step plan."
     )
@@ -28,7 +29,9 @@ export function effectiveSystemPrompt(features: Partial<AgentFeatures> = {}): st
     .replace(
       "- Mark every plan step completed with evidence, then call finish_task. A normal assistant message is not a completion signal.",
       "- Use finish_task stepEvidence to close the remaining steps with evidence. All steps must be completed and the latest real change must have passing verification. A normal assistant message is not a completion signal."
-    );
+    )
+    : SYSTEM_PROMPT;
+  return features.budgetNotices ? `${prompt}\n${BUDGET_NOTICE_PROMPT}` : prompt;
 }
 
 export function buildUserPrompt(options: {

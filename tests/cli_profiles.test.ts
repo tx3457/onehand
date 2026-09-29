@@ -49,6 +49,15 @@ describe("CLI profiles", () => {
     expect(mocks.runAgent).toHaveBeenCalledWith(expect.objectContaining({ profile: PROFILES.baseline }));
   });
 
+  it.each(["run", "chat"])("accepts the local ctx-notices profile for %s", async (command) => {
+    const args = command === "run"
+      ? ["run", "inspect", "--repo", "/tmp/repo", "--profile", "ctx-notices"]
+      : ["chat", "--repo", "/tmp/repo", "--profile", "ctx-notices"];
+    await runCli(args);
+    if (command === "run") expect(mocks.runAgent).toHaveBeenCalledWith(expect.objectContaining({ profile: PROFILES["ctx-notices"] }));
+    else expect(mocks.runRepl).toHaveBeenCalledWith(expect.objectContaining({ profile: "ctx-notices" }));
+  });
+
   it("requires an explicit profile on resume so old baseline sessions cannot silently switch to ctx", async () => {
     await runCli(["run", "inspect", "--repo", "/tmp/repo", "--resume", "/tmp/old-run"]);
     expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/resume requires.*--profile.*original run/i));
@@ -95,6 +104,20 @@ describe("CLI profiles", () => {
     await runCli(args);
 
     expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/ctx-sandbox.*local.*Docker/i));
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(mocks.runRepl).not.toHaveBeenCalled();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+  });
+
+  it.each(["run", "chat"])("rejects the Docker-only notice profile for %s", async (command) => {
+    delete process.env.OPENAI_API_KEY;
+    const args = command === "run"
+      ? ["run", "inspect", "--repo", "/tmp/repo", "--profile", "ctx-sandbox-notices"]
+      : ["chat", "--repo", "/tmp/repo", "--profile", "ctx-sandbox-notices"];
+
+    await runCli(args);
+
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/ctx-sandbox-notices.*local.*Docker/i));
     expect(mocks.runAgent).not.toHaveBeenCalled();
     expect(mocks.runRepl).not.toHaveBeenCalled();
     expect(mocks.createModelProvider).not.toHaveBeenCalled();

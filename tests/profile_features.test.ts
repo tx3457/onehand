@@ -25,9 +25,11 @@ function registry(flags = {}, docker = false) {
 
 describe("profile features", () => {
   it("defaults all features to false and validates names and boolean values", () => {
-    expect(resolveFeatures({})).toEqual({ retrieval: false, compactObservations: false, sandboxCommands: false, observationMasking: false, leanPlanning: false, exploreSubagent: false });
+    expect(resolveFeatures({})).toEqual({ retrieval: false, compactObservations: false, sandboxCommands: false, observationMasking: false, leanPlanning: false, exploreSubagent: false, budgetNotices: false });
     expect(resolveProfile("ctx").flags).toEqual({ retrieval: true, compactObservations: true });
+    expect(resolveProfile("ctx-notices").flags).toEqual({ retrieval: true, compactObservations: true, budgetNotices: true });
     expect(resolveProfile("ctx-sandbox").flags).toEqual({ retrieval: true, compactObservations: true, sandboxCommands: true });
+    expect(resolveProfile("ctx-sandbox-notices").flags).toEqual({ retrieval: true, compactObservations: true, sandboxCommands: true, budgetNotices: true });
     expect(resolveProfile("ctx-sandbox-mask").flags).toEqual({ retrieval: true, compactObservations: true, sandboxCommands: true, observationMasking: true });
     expect(resolveProfile("ctx-sandbox-plan").flags).toEqual({ retrieval: true, compactObservations: true, sandboxCommands: true, leanPlanning: true });
     expect(resolveProfile("full").flags).toEqual({ retrieval: true, compactObservations: true, sandboxCommands: true, observationMasking: true, leanPlanning: true });
@@ -46,7 +48,7 @@ describe("profile features", () => {
     expect(TOOL_DEFINITIONS.find((tool) => tool.name === "read_file")!.parameters.properties).not.toHaveProperty("startLine");
     const sandbox = toolDefinitionsFor(PROFILES["ctx-sandbox"].flags);
     expect(sandbox.find((tool) => tool.name === "run_command")!.description).toContain("container");
-    expect(new Set(Object.values(PROFILES).map((profile) => agentBehaviorFingerprint(profile))).size).toBe(7);
+    expect(new Set(Object.values(PROFILES).map((profile) => agentBehaviorFingerprint(profile))).size).toBe(9);
     expect(() => agentBehaviorFingerprint({ name: "invalid", flags: { typo: true } as any })).toThrow();
   });
 

@@ -17,14 +17,15 @@ describe("sub-agent profile", () => {
   });
 
   it("enumerates every profile and defaults every feature to false", () => {
-    expect(Object.keys(PROFILES)).toEqual(["baseline", "ctx", "ctx-sandbox", "ctx-sandbox-mask", "full", "ctx-sandbox-plan", "ctx-sandbox-plan-explore"]);
+    expect(Object.keys(PROFILES)).toEqual(["baseline", "ctx", "ctx-sandbox", "ctx-sandbox-mask", "full", "ctx-sandbox-plan", "ctx-sandbox-plan-explore", "ctx-notices", "ctx-sandbox-notices"]);
     expect(resolveFeatures({})).toEqual({
       retrieval: false,
       compactObservations: false,
       sandboxCommands: false,
       observationMasking: false,
       leanPlanning: false,
-      exploreSubagent: false
+      exploreSubagent: false,
+      budgetNotices: false
     });
   });
 });

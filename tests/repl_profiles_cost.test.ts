@@ -104,6 +104,16 @@ describe("chat profiles and session pricing", () => {
     expect(await session("/profile\n/exit\n", { profile: "baseline" })).toContain("Profile: baseline");
   });
 
+  it("accepts ctx-notices and rejects ctx-sandbox-notices", async () => {
+    const profiles: unknown[] = [];
+    const text = await session("/profile ctx-notices\nfirst\n/profile ctx-sandbox-notices\nsecond\n/exit\n", {
+      runAgentFn: async (options) => { profiles.push(options.profile); return report; }
+    });
+    expect(profiles).toEqual([PROFILES["ctx-notices"], PROFILES["ctx-notices"]]);
+    expect(text).toContain("Profile: ctx-notices");
+    expect(text).toMatch(/ctx-sandbox-notices.*local.*Docker/);
+  });
+
   it("rejects a Docker profile at startup before creating a provider", async () => {
     await expect(session("/exit\n", { profile: "ctx-sandbox" })).rejects.toThrow(/Docker/);
   });

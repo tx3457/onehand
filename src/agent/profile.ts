@@ -5,6 +5,7 @@ export type AgentFeatures = Readonly<{
   observationMasking: boolean;
   leanPlanning: boolean;
   exploreSubagent: boolean;
+  budgetNotices: boolean;
 }>;
 
 export type AgentProfile = { name: string; flags: Partial<AgentFeatures> };
@@ -26,7 +27,9 @@ export const PROFILES = {
   "ctx-sandbox-mask": { name: "ctx-sandbox-mask", flags: { retrieval: true, compactObservations: true, sandboxCommands: true, observationMasking: true } },
   full,
   "ctx-sandbox-plan": ctxSandboxPlan,
-  "ctx-sandbox-plan-explore": { name: "ctx-sandbox-plan-explore", flags: { ...ctxSandboxPlan.flags, exploreSubagent: true } }
+  "ctx-sandbox-plan-explore": { name: "ctx-sandbox-plan-explore", flags: { ...ctxSandboxPlan.flags, exploreSubagent: true } },
+  "ctx-notices": { name: "ctx-notices", flags: { retrieval: true, compactObservations: true, budgetNotices: true } },
+  "ctx-sandbox-notices": { name: "ctx-sandbox-notices", flags: { retrieval: true, compactObservations: true, sandboxCommands: true, budgetNotices: true } }
 } satisfies Record<string, AgentProfile>;
 
 export function resolveFeatures(flags: unknown = {}): AgentFeatures {
@@ -39,7 +42,8 @@ export function resolveFeatures(flags: unknown = {}): AgentFeatures {
     sandboxCommands: false,
     observationMasking: false,
     leanPlanning: false,
-    exploreSubagent: false
+    exploreSubagent: false,
+    budgetNotices: false
   };
   for (const key of Reflect.ownKeys(flags)) {
     if (typeof key !== "string" || !Object.hasOwn(features, key)) {

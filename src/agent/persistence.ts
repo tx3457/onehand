@@ -26,6 +26,9 @@ export type PersistedRunState = {
   stopReason?: StopReason;
   textOnlyNudges?: number;
   previousPromptTokens?: number;
+  lastWriteRound?: number;
+  budgetNoticeLevel?: number;
+  closeoutNoticeRevision?: number;
   startedAt: string;
   updatedAt: string;
 };

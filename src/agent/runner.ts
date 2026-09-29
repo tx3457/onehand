@@ -92,6 +92,9 @@ const DEFAULT_USAGE: RunUsage = {
 };
 export const TEXT_ONLY_NUDGE = "A plain assistant message does not complete the task. Call the next tool you need, or call finish_task once every plan step is complete and the latest change is verified.";
 export const OUTPUT_LIMIT_NUDGE = "Your previous response hit the output limit before any tool call. Continue by calling the next tool you need; keep reasoning brief.";
+export const BUDGET_NOTICE_TEMPLATE = "Budget notice: {percent}% of the run budget is used (rounds {rounds}/{maxSteps}, input tokens {input}/{maxInput}, tool calls {tools}/{maxTools}). Every round resends the whole history, so the remaining rounds are the most expensive. If the latest change is verified and the task is done, mark the remaining plan steps completed with evidence and call finish_task; otherwise make the smallest next change that can be verified.";
+export const CLOSEOUT_NOTICE_TEMPLATE = "Close-out notice: the latest file change (round {lastWriteRound}) has passing verification and no file has changed for {stableRounds} rounds. Budget used: {percent}% (rounds {rounds}/{maxSteps}, input tokens {input}/{maxInput}, tool calls {tools}/{maxTools}). If the task is complete, mark the remaining plan steps completed with evidence and call finish_task now instead of exploring further. If it is not complete, make the next change.";
+const BUDGET_NOTICE_THRESHOLDS = [0.5, 0.75, 0.9];
 // Only the nonce varies between runs; the behavior fingerprint covers this fixed template.
 export const CACHE_ISOLATION_TEMPLATE = "Session: <nonce>";
 const CACHE_ISOLATION_NONCE = /^[A-Za-z0-9-]{8,64}$/;
@@ -286,6 +289,11 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   let finalMessage = restored?.finalMessage ?? "";
   let textOnlyNudges = restored?.textOnlyNudges ?? 0;
   let previousPromptTokens = restored?.previousPromptTokens ?? 0;
+  const budgetNoticeState = {
+    lastWriteRound: restored?.lastWriteRound ?? 0,
+    budgetNoticeLevel: restored?.budgetNoticeLevel ?? -1,
+    closeoutNoticeRevision: restored?.closeoutNoticeRevision ?? -1
+  };
   let status: RunStatus = "failed";
   let stopReason: StopReason = "step_budget";
   const startedAt = restored?.startedAt ?? new Date().toISOString();
@@ -353,8 +361,71 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             status: "stopped",
             textOnlyNudges,
             previousPromptTokens,
+            ...(features.budgetNotices ? budgetNoticeState : {}),
             startedAt
           }, git);
+        }
+      }
+
+      if (features.budgetNotices && enforcePlanning && options.subagentDepth === undefined && usage.modelRounds > 0) {
+        const used = Math.min(1, Math.max(0,
+          usedRounds(usage) / limits.maxSteps,
+          usage.toolCalls / limits.maxToolCalls,
+          usage.inputTokens / limits.maxInputTokens,
+          usage.outputTokens / limits.maxOutputTokens,
+          usage.wallTimeMs / limits.maxWallTimeMs
+        ));
+        const level = BUDGET_NOTICE_THRESHOLDS.reduce(
+          (highest, threshold, index) => used >= threshold ? Math.max(highest, index) : highest,
+          budgetNoticeState.budgetNoticeLevel
+        );
+        const snapshot = plan.snapshot();
+        // lastWriteRound counts this run's own model rounds, so sub-agent rounds must not make a change look stable.
+        const stableRounds = usage.modelRounds - budgetNoticeState.lastWriteRound;
+        const closeout = snapshot.status === "active" && snapshot.writeRevision > 0 &&
+          snapshot.validatedWriteRevision === snapshot.writeRevision && stableRounds >= 3 &&
+          budgetNoticeState.closeoutNoticeRevision !== snapshot.writeRevision;
+        if (closeout || level > budgetNoticeState.budgetNoticeLevel) {
+          const text = renderBudgetNotice(closeout ? CLOSEOUT_NOTICE_TEMPLATE : BUDGET_NOTICE_TEMPLATE, {
+            percent: Math.round(used * 100),
+            rounds: usedRounds(usage),
+            maxSteps: limits.maxSteps,
+            input: formatBudgetTokens(usage.inputTokens),
+            maxInput: formatBudgetTokens(limits.maxInputTokens),
+            tools: usage.toolCalls,
+            maxTools: limits.maxToolCalls,
+            lastWriteRound: budgetNoticeState.lastWriteRound,
+            stableRounds
+          });
+          budgetNoticeState.budgetNoticeLevel = level;
+          if (closeout) budgetNoticeState.closeoutNoticeRevision = snapshot.writeRevision;
+          history.push(...provider.initialHistory(text));
+          await saveCheckpoint(store, {
+            task: options.task,
+            repo: repoRoot,
+            gitHead,
+            provider: provider.name,
+            model,
+            history,
+            plan: snapshot,
+            usage,
+            records: registry.records,
+            failureSignatures,
+            finalMessage,
+            status: "stopped",
+            textOnlyNudges,
+            ...(features.observationMasking ? { previousPromptTokens } : {}),
+            ...budgetNoticeState,
+            startedAt
+          }, git);
+          await store?.trace("budget_notice", {
+            round: usage.modelRounds + 1,
+            kind: closeout ? "closeout" : "budget",
+            used,
+            level,
+            writeRevision: snapshot.writeRevision,
+            lastWriteRound: budgetNoticeState.lastWriteRound
+          });
         }
       }
 
@@ -452,8 +523,12 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         const toolStarted = Date.now();
         const observerTimeAtToolStart = observerTimeMs;
         const previousPlan = options.onEvent ? plan.snapshot() : undefined;
+        const previousWriteRevision = features.budgetNotices ? plan.snapshot().writeRevision : 0;
         if (options.onEvent) emit({ type: "tool_started", name: call.name, argsSummary: summarizeEventArguments(call.arguments) });
         const result = await registry.execute(call.name, call.arguments);
+        if (features.budgetNotices && plan.snapshot().writeRevision > previousWriteRevision) {
+          budgetNoticeState.lastWriteRound = usage.modelRounds;
+        }
         const durationMs = Date.now() - toolStarted - (observerTimeMs - observerTimeAtToolStart);
         if (options.onEvent) emit({
           type: "tool_finished", name: call.name, ok: toolSucceeded(result), durationMs,
@@ -550,6 +625,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           stopReason: shouldStop ? stopReason : undefined,
           textOnlyNudges,
           ...(features.observationMasking ? { previousPromptTokens } : {}),
+          ...(features.budgetNotices ? budgetNoticeState : {}),
           startedAt
         }, git);
         if (shouldStop) {
@@ -616,6 +692,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     stopReason,
     textOnlyNudges,
     ...(features.observationMasking ? { previousPromptTokens } : {}),
+    ...(features.budgetNotices ? budgetNoticeState : {}),
     startedAt
   }, git);
   await store?.trace("run_finished", { status, stopReason, usage, plan: compactPlan(plan.snapshot()) });
@@ -682,6 +759,16 @@ async function completeWithRetry(
     }
   }
   throw new ModelCallError(lastError);
+}
+
+function formatBudgetTokens(value: number): string {
+  if (value >= 1_000_000) return `${Number((value / 1_000_000).toFixed(1))}M`;
+  if (value >= 1_000) return `${Number((value / 1_000).toFixed(1))}k`;
+  return String(value);
+}
+
+function renderBudgetNotice(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (placeholder, key: string) => String(values[key] ?? placeholder));
 }
 
 function budgetReason(
