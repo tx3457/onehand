@@ -104,6 +104,8 @@ describe.skipIf(!enabled)(`SWE-bench Docker integration (${INSTANCE}, ${SOURCE} 
     expect(located.ok && located.data.stdout.trim()).toBe("/testbed/django/__init__.py");
     expect(await container.executor.run({ program: "true", args: [], cwd: "/tmp", timeoutSec: 30 }))
       .toMatchObject({ ok: false, recoverable: false, code: "environment" });
+    expect(await container.executor.run({ program: "true", args: [], cwd: path.join(workspace!.repo, "gone"), timeoutSec: 30 }))
+      .toEqual({ ok: false, error: "Working directory does not exist in the container: /testbed/gone", recoverable: true });
     const gitWrite = await container.executor.run({ program: "touch", args: [".git/onehand-probe"], cwd: workspace!.repo, timeoutSec: 30 });
     expect(gitWrite.ok && gitWrite.data.exitCode).not.toBe(0);
   }, 300_000);

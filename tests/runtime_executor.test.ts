@@ -1,6 +1,6 @@
 import type { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { access, mkdir, realpath, symlink } from "node:fs/promises";
+import { access, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildDockerExecArgs, DockerExecutor, LocalExecutor, PathMapper } from "../src/runtime/executor.js";
@@ -91,13 +91,18 @@ describe("PathMapper", () => {
 });
 
 describe("buildDockerExecArgs", () => {
-  const base = { container: "sweb-1", containerCwd: "/testbed", timeoutSec: 30, program: "python", args: ["-m", "pytest", "tests/test_x.py"] };
+  const base = {
+    container: "sweb-1", displayRoot: "/testbed", containerCwd: "/testbed",
+    timeoutSec: 30, program: "python", args: ["-m", "pytest", "tests/test_x.py"]
+  };
 
   it("builds the exact argv without activation", () => {
     expect(buildDockerExecArgs(base)).toEqual([
       "exec", "-w", "/testbed", "sweb-1",
       "timeout", "--signal=TERM", "--kill-after=5s", "30s",
-      "bash", "-c", 'exec -- "$@"', "onehand", "python", "-m", "pytest", "tests/test_x.py"
+      "bash", "-c",
+      'cd -- "$1" 2>/dev/null || { printf \'onehand: cannot enter working directory: %s\\n\' "$1" >&2; exit 254; }; shift; exec -- "$@"',
+      "onehand", "/testbed", "python", "-m", "pytest", "tests/test_x.py"
     ]);
   });
 
@@ -109,11 +114,11 @@ describe("buildDockerExecArgs", () => {
       env: { PYTHONDONTWRITEBYTECODE: "1", LABEL: "two words" },
       activation: "source /opt/miniconda3/bin/activate && conda activate testbed"
     })).toEqual([
-      "exec", "-w", "/testbed/sub", "-u", "root", "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", "LABEL=two words", "sweb-1",
+      "exec", "-w", "/testbed", "-u", "root", "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", "LABEL=two words", "sweb-1",
       "timeout", "--signal=TERM", "--kill-after=5s", "30s",
       "bash", "-c",
-      'onehand_argv=("$@"); set --; source /opt/miniconda3/bin/activate && conda activate testbed && exec -- "${onehand_argv[@]}"',
-      "onehand", "python", "-m", "pytest", "tests/test_x.py"
+      'cd -- "$1" 2>/dev/null || { printf \'onehand: cannot enter working directory: %s\\n\' "$1" >&2; exit 254; }; shift; onehand_argv=("$@"); set --; source /opt/miniconda3/bin/activate && conda activate testbed && exec -- "${onehand_argv[@]}"',
+      "onehand", "/testbed/sub", "python", "-m", "pytest", "tests/test_x.py"
     ]);
   });
 
@@ -123,7 +128,7 @@ describe("buildDockerExecArgs", () => {
     // Without `--`, bash would read this as `exec -a argv0 node ...` and run node.
     const printer = ["argv0", "node", "-e", "process.stdout.write('ran')"];
     for (const activation of [undefined, "true"]) {
-      const argv = buildDockerExecArgs({ ...base, activation, program: "-a", args: printer });
+      const argv = buildDockerExecArgs({ ...base, displayRoot: cwd, containerCwd: cwd, activation, program: "-a", args: printer });
       const inContainer = argv.slice(argv.indexOf("bash"));
       const result = await new LocalExecutor().run({ program: inContainer[0]!, args: inContainer.slice(1), cwd, timeoutSec: 10 });
       expect(result, String(activation)).toMatchObject({ ok: true, data: { exitCode: 127, stdout: "" } });
@@ -136,20 +141,70 @@ describe("buildDockerExecArgs", () => {
     const activation = 'export ONEHAND_ACTIVATED="yes:$#"';
     const argv = buildDockerExecArgs({ ...base, activation, program: "node", args: hostile });
     const script = argv[argv.indexOf("-c") + 1]!;
-    expect(script).toBe(`onehand_argv=("$@"); set --; ${activation} && exec -- "\${onehand_argv[@]}"`);
+    expect(script).toBe(`cd -- "$1" 2>/dev/null || { printf 'onehand: cannot enter working directory: %s\\n' "$1" >&2; exit 254; }; shift; onehand_argv=("$@"); set --; ${activation} && exec -- "\${onehand_argv[@]}"`);
     for (const value of hostile) expect(script).not.toContain(value);
-    expect(argv.slice(argv.indexOf("onehand") + 1)).toEqual(["node", ...hostile]);
+    expect(argv.slice(argv.indexOf("onehand") + 1)).toEqual(["/testbed", "node", ...hostile]);
 
     // Run the in-container half (bash -c ... onehand node ...) for real: every value arrives verbatim.
     const cwd = await makeTempDir();
     dirs.push(cwd);
     const printer = "process.stdout.write(JSON.stringify([process.env.ONEHAND_ACTIVATED, ...process.argv.slice(1)]))";
-    const shellArgv = buildDockerExecArgs({ ...base, activation, program: "node", args: ["-e", printer, ...hostile] });
+    const shellArgv = buildDockerExecArgs({
+      ...base, displayRoot: cwd, containerCwd: cwd, activation, program: "node", args: ["-e", printer, ...hostile]
+    });
     const inContainer = shellArgv.slice(shellArgv.indexOf("bash"));
     const result = await new LocalExecutor().run({ program: inContainer[0]!, args: inContainer.slice(1), cwd, timeoutSec: 10 });
     expect(result.ok && JSON.parse(result.data.stdout)).toEqual(["yes:0", ...hostile]);
     for (const marker of ["pwned-subst", "pwned-quote", "pwned-double", "pwned-tick"]) {
       await expect(access(path.join(cwd, marker))).rejects.toThrow();
+    }
+  });
+
+  it("enters an existing hostile-named cwd before activation and command execution", async () => {
+    const baseDir = await makeTempDir();
+    dirs.push(baseDir);
+    const requestedCwd = path.join(baseDir, "odd $(touch cwd-pwned); name");
+    await mkdir(requestedCwd);
+    const printer = "process.stdout.write(JSON.stringify([process.cwd(), process.env.ONEHAND_ACTIVATED ?? 'no']))";
+    for (const activation of [undefined, "export ONEHAND_ACTIVATED=yes"]) {
+      const argv = buildDockerExecArgs({
+        ...base, displayRoot: baseDir, containerCwd: requestedCwd, activation, program: "node", args: ["-e", printer]
+      });
+      const script = argv[argv.indexOf("-c") + 1]!;
+      expect(script).not.toContain(requestedCwd);
+      const inContainer = argv.slice(argv.indexOf("bash"));
+      const result = await new LocalExecutor().run({ program: inContainer[0]!, args: inContainer.slice(1), cwd: baseDir, timeoutSec: 10 });
+      expect(result.ok && JSON.parse(result.data.stdout)).toEqual([requestedCwd, activation ? "yes" : "no"]);
+    }
+    await expect(access(path.join(baseDir, "cwd-pwned"))).rejects.toThrow();
+  });
+
+  it("rejects missing and file cwd values before activation or command execution", async () => {
+    const baseDir = await makeTempDir();
+    dirs.push(baseDir);
+    const missingCwd = path.join(baseDir, "gone");
+    const fileCwd = path.join(baseDir, "file-cwd");
+    await writeFile(fileCwd, "not a directory\n");
+    for (const [label, requestedCwd] of [["missing", missingCwd], ["file", fileCwd]] as const) {
+      for (const activation of [undefined, `touch ${path.join(baseDir, `${label}-activation-ran`)}`]) {
+        const commandMarker = path.join(baseDir, `${label}-command-ran`);
+        const argv = buildDockerExecArgs({
+          ...base,
+          displayRoot: baseDir,
+          containerCwd: requestedCwd,
+          activation,
+          program: "node",
+          args: ["-e", "require('node:fs').writeFileSync(process.argv[1], 'ran')", commandMarker]
+        });
+        const inContainer = argv.slice(argv.indexOf("bash"));
+        const result = await new LocalExecutor().run({ program: inContainer[0]!, args: inContainer.slice(1), cwd: baseDir, timeoutSec: 10 });
+        expect(result).toMatchObject({
+          ok: true,
+          data: { exitCode: 254, stderr: `onehand: cannot enter working directory: ${requestedCwd}\n` }
+        });
+        await expect(access(path.join(baseDir, `${label}-activation-ran`))).rejects.toThrow();
+        await expect(access(commandMarker)).rejects.toThrow();
+      }
     }
   });
 });
@@ -176,8 +231,10 @@ describe("DockerExecutor", () => {
       expect(calls).toHaveLength(1);
       expect(calls[0]!.program).toBe("docker");
       expect(calls[0]!.args).toEqual([
-        "exec", "-w", "/testbed/sub", "-u", "root", "-e", "A=base", "-e", "B=request", "sweb-1",
-        "timeout", "--signal=TERM", "--kill-after=5s", "30s", "bash", "-c", 'exec -- "$@"', "onehand", "python", "-m", "pytest"
+        "exec", "-w", "/testbed", "-u", "root", "-e", "A=base", "-e", "B=request", "sweb-1",
+        "timeout", "--signal=TERM", "--kill-after=5s", "30s", "bash", "-c",
+        'cd -- "$1" 2>/dev/null || { printf \'onehand: cannot enter working directory: %s\\n\' "$1" >&2; exit 254; }; shift; exec -- "$@"',
+        "onehand", "/testbed/sub", "python", "-m", "pytest"
       ]);
       expect(calls[0]!.options.env).not.toHaveProperty("ONEHAND_TEST_SECRET");
     } finally {
@@ -235,8 +292,30 @@ describe("DockerExecutor", () => {
         ok: false, error: `docker exec failed with exit ${code}: ${stderr}`, recoverable: false, code: "environment"
       });
     }
+    for (const code of [125, 126, 127, 254]) {
+      expect(await run(code, `user command exited ${code}\n`)).toMatchObject({ ok: true, data: { exitCode: code } });
+    }
     expect(await run(127, "onehand: line 1: exec: pytest: not found\n")).toMatchObject({ ok: true, data: { exitCode: 127 } });
     expect(await run(1, "", "Error response from daemon: the test printed this\n")).toMatchObject({ ok: true, data: { exitCode: 1 } });
+  });
+
+  it("reports a missing mapped cwd as a recoverable tool error only for the wrapper marker and exit 254", async () => {
+    const marker = "onehand: cannot enter working directory: /testbed/gone\n";
+    const run = async (code: number, stderr: string) => {
+      const { spawnImpl } = fakeSpawn((child) => {
+        child.stderr.emit("data", Buffer.from(stderr));
+        child.emit("close", code);
+      });
+      return new DockerExecutor({ container: "sweb-1", pathMapper: mapper, spawnImpl })
+        .run({ program: "python", args: [], cwd: "/host/repo/gone", timeoutSec: 5 });
+    };
+    expect(await run(254, marker)).toEqual({
+      ok: false,
+      error: "Working directory does not exist in the container: /testbed/gone",
+      recoverable: true
+    });
+    expect(await run(254, "user command exited 254\n")).toMatchObject({ ok: true, data: { exitCode: 254 } });
+    expect(await run(1, marker)).toMatchObject({ ok: true, data: { exitCode: 1 } });
   });
 
   it("reports a docker client that cannot start as an environment failure", async () => {
@@ -255,7 +334,8 @@ describe("DockerExecutor", () => {
     const executor = new DockerExecutor({ container: "sweb-1", pathMapper: new PathMapper(path.join(base, "link"), "/testbed"), spawnImpl });
     expect(await executor.run({ program: "python", args: [], cwd: path.join(base, "repo", "sub"), timeoutSec: 5 }))
       .toMatchObject({ ok: true, data: { exitCode: 0 } });
-    expect(calls[0]!.args.slice(0, 3)).toEqual(["exec", "-w", "/testbed/sub"]);
+    expect(calls[0]!.args.slice(0, 3)).toEqual(["exec", "-w", "/testbed"]);
+    expect(calls[0]!.args.slice(calls[0]!.args.indexOf("onehand") + 1, -1)).toEqual(["/testbed/sub"]);
   });
 
   it("truncates output with the requested strategy", async () => {
@@ -311,5 +391,13 @@ describe("LocalExecutor", () => {
     } finally {
       delete process.env.ONEHAND_TEST_SECRET;
     }
+  });
+
+  it("returns a recoverable failure when its cwd no longer exists", async () => {
+    const base = await makeTempDir();
+    dirs.push(base);
+    const missing = path.join(base, "gone");
+    await expect(new LocalExecutor().run({ program: "node", args: ["--version"], cwd: missing, timeoutSec: 5 }))
+      .resolves.toMatchObject({ ok: false, recoverable: true });
   });
 });

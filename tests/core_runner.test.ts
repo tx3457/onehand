@@ -618,6 +618,50 @@ describe("strict agent runner", () => {
     expect(JSON.parse(await readFile(path.join(runDir, "state.json"), "utf8"))).toMatchObject({ status: "failed", stopReason: "runtime_error" });
   });
 
+  it("continues after a recoverable missing-cwd tool error without tracing an environment failure", async () => {
+    await writeFile(path.join(repo, "tracked.txt"), "x\n");
+    await git(["add", "."], repo);
+    await git(["commit", "-m", "initial"], repo);
+    let attempts = 0;
+    const { executor, executions } = fakeContainer(repo, (request) => {
+      attempts += 1;
+      if (attempts === 1) {
+        return { ok: false, error: "Working directory does not exist in the container: /testbed/gone", recoverable: true };
+      }
+      return {
+        ok: true,
+        data: { command: request.displayCommand ?? request.program, exitCode: 0, stdout: "ok\n", stderr: "", timedOut: false, durationMs: 0, truncated: false }
+      };
+    });
+    const turns = [
+      call("set_plan", { steps: ["verify"] }, "1"),
+      call("run_command", { program: "python", args: ["--version"], cwd: "/testbed/gone" }, "2"),
+      call("run_tests", {}, "3"),
+      call("update_plan", { stepId: 1, status: "completed", evidence: "tests passed" }, "4"),
+      call("finish_task", { summary: "verified" }, "5")
+    ];
+    const seenHistories: unknown[] = [];
+    const complete = vi.fn(async (request: ProviderRequest) => {
+      seenHistories.push(structuredClone(request.history));
+      return turns.shift() ?? messageTurn("unexpected stop");
+    });
+    const report = await runAgent({
+      task: "verify", repoPath: repo, testCommand: "python -m pytest", provider: baseProvider(complete),
+      enforcePlanning: true, persistence: true, runDir, executor, displayRoot: "/testbed"
+    });
+    expect(report).toMatchObject({ status: "success", stopReason: "explicit_finish", finalMessage: "verified" });
+    expect(complete).toHaveBeenCalledTimes(5);
+    expect(executions).toHaveLength(2);
+    expect(executions[0]).toMatchObject({ program: "python", args: ["--version"], cwd: path.join(repo, "gone") });
+    expect(executions[1]).toMatchObject({ program: "python", args: ["-m", "pytest"], cwd: repo });
+    expect(JSON.stringify(seenHistories[2]))
+      .toContain("Working directory does not exist in the container: /testbed/gone");
+    const events = (await readFile(path.join(runDir, "trace.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(events.some((event) => event.event === "environment_failure")).toBe(false);
+    expect(events.find((event) => event.event === "tool_result" && event.data.name === "run_command" && event.data.ok === false)?.data)
+      .toMatchObject({ errorCategory: "other" });
+  });
+
   it("keeps the plain system prompt, host repository root, and local executor by default", async () => {
     const seen: Array<{ instructions: string; prompt: string }> = [];
     await runAgent({

@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- In the Docker executor, a command `cwd` that does not exist in the container now returns a recoverable tool error instead of ending the run as an environment failure (post-hoc failure-analysis finding 6).
+
 ## [0.3.0] - 2026-09-28
 
 ### Added

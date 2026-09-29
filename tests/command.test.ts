@@ -27,6 +27,17 @@ describe("command runner", () => {
     }
   });
 
+  it("returns a recoverable error when the local cwd does not exist", async () => {
+    const base = await makeTempDir();
+    try {
+      const result = await runShellCommand({ command: "node --version", cwd: path.join(base, "gone"), timeoutSec: 10 });
+      expect(result).toMatchObject({ ok: false, recoverable: true, error: expect.stringContaining("ENOENT") });
+      expect(result).not.toHaveProperty("code");
+    } finally {
+      await cleanupTempDir(base);
+    }
+  });
+
   it("times out long-running commands", async () => {
     const cwd = await makeTempDir();
     try {

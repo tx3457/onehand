@@ -15,6 +15,7 @@ const TIMEOUT_EXIT_CODES = new Set([124, 137]);
 // With one of these exit codes and daemon or runtime text, `docker exec` itself failed, not the command.
 const DOCKER_FAILURE_EXIT_CODES = new Set([125, 126, 127]);
 const DOCKER_FAILURE_TEXT = /Error response from daemon|OCI runtime|No such container|is not running|cannot exec in a stopped/;
+const MISSING_CWD_MARKER = "onehand: cannot enter working directory: ";
 
 export type ExecRequest = {
   program: string;
@@ -92,6 +93,7 @@ export class DockerExecutor implements Executor {
       program: "docker",
       args: buildDockerExecArgs({
         container: this.options.container,
+        displayRoot: this.pathMapper.displayRoot,
         containerCwd: this.pathMapper.toDisplay(request.cwd),
         user: this.options.user,
         env: { ...this.options.env, ...request.env },
@@ -110,6 +112,10 @@ export class DockerExecutor implements Executor {
     });
     if (!result.ok) return environmentFailure(`docker could not be started: ${result.error}`);
     const { exitCode, stdout, stderr } = result.data;
+    const containerCwd = this.pathMapper.toDisplay(request.cwd);
+    if (exitCode === 254 && stderr.includes(`${MISSING_CWD_MARKER}${containerCwd}\n`)) {
+      return failure(`Working directory does not exist in the container: ${containerCwd}`);
+    }
     const output = `${stderr}\n${stdout}`.trim();
     if (exitCode !== null && DOCKER_FAILURE_EXIT_CODES.has(exitCode) && DOCKER_FAILURE_TEXT.test(output)) {
       return environmentFailure(`docker exec failed with exit ${exitCode}: ${output.slice(0, 1_000)}`);
@@ -120,6 +126,7 @@ export class DockerExecutor implements Executor {
 
 export function buildDockerExecArgs(options: {
   container: string;
+  displayRoot: string;
   containerCwd: string;
   program: string;
   args: string[];
@@ -132,16 +139,17 @@ export function buildDockerExecArgs(options: {
   // and `exec --` keeps a program named like an option (-a, -c) from becoming an exec flag.
   // The activation runs with no positional parameters: a bare `source .../activate` would otherwise
   // receive the command as its own arguments (conda rejects them).
+  const enterCwd = `cd -- "$1" 2>/dev/null || { printf '${MISSING_CWD_MARKER}%s\\n' "$1" >&2; exit 254; }; shift;`;
   const script = options.activation
-    ? `onehand_argv=("$@"); set --; ${options.activation} && exec -- "\${onehand_argv[@]}"`
-    : 'exec -- "$@"';
+    ? `${enterCwd} onehand_argv=("$@"); set --; ${options.activation} && exec -- "\${onehand_argv[@]}"`
+    : `${enterCwd} exec -- "$@"`;
   return [
-    "exec", "-w", options.containerCwd,
+    "exec", "-w", options.displayRoot,
     ...(options.user ? ["-u", options.user] : []),
     ...Object.entries(options.env ?? {}).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
     options.container,
     "timeout", "--signal=TERM", "--kill-after=5s", `${options.timeoutSec}s`,
-    "bash", "-c", script, "onehand", options.program, ...options.args
+    "bash", "-c", script, "onehand", options.containerCwd, options.program, ...options.args
   ];
 }
 
