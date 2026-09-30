@@ -5,10 +5,12 @@ import path from "node:path";
 import { LocalExecutor } from "./executor.js";
 import { HOST_DIFF_FLAGS, HOST_GIT_CONFIG } from "../tools/git.js";
 import { isProtectedRepoPath, resolveInsideRepo, resolveSafeRepoPath } from "../tools/pathGuard.js";
+import { withRepositoryLock } from "./repositoryLock.js";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const CHECKPOINT_REF = "refs/heads/checkpoints";
 const GIT_TIMEOUT_SEC = 30;
+const CHECKPOINT_LOCK_WAIT_MS = 30_000;
 
 export type Checkpoint = {
   id: string;
@@ -31,48 +33,70 @@ export class CheckpointStore {
 
   async snapshot(label: string): Promise<Checkpoint> {
     if (label.includes("\0")) throw new Error("Checkpoint label cannot contain a null byte");
-    const paths = await this.initialize();
-    const staged = await this.stageCurrent(paths);
-    const createdAt = new Date().toISOString();
-    await this.git(paths, [
-      "commit", "--allow-empty", "--no-gpg-sign", "-m",
-      checkpointMessage({ label, createdAt, notes: staged.notes, excluded: staged.excluded })
-    ], commitEnvironment(createdAt));
-    const id = (await this.git(paths, ["rev-parse", "HEAD"])).trim();
-    return publicCheckpoint({ id, label, createdAt, notes: staged.notes, excluded: staged.excluded });
+    return this.withLock(async () => {
+      const paths = await this.initialize();
+      const staged = await this.stageCurrent(paths);
+      const createdAt = new Date().toISOString();
+      await this.git(paths, [
+        "commit", "--allow-empty", "--no-gpg-sign", "-m",
+        checkpointMessage({ label, createdAt, notes: staged.notes, excluded: staged.excluded })
+      ], commitEnvironment(createdAt));
+      const id = (await this.git(paths, ["rev-parse", "HEAD"])).trim();
+      return publicCheckpoint({ id, label, createdAt, notes: staged.notes, excluded: staged.excluded });
+    });
   }
 
   async list(): Promise<Checkpoint[]> {
-    const paths = await this.initialize();
-    const output = await this.tryGit(paths, ["rev-list", CHECKPOINT_REF]);
-    if (output === undefined || output === "") return [];
-    const checkpoints: Checkpoint[] = [];
-    for (const id of output.split("\n").filter(Boolean)) {
-      checkpoints.push(publicCheckpoint(await this.readCheckpoint(paths, id)));
-    }
-    return checkpoints;
+    return this.withLock(async () => {
+      const paths = await this.initialize();
+      const output = await this.tryGit(paths, ["rev-list", CHECKPOINT_REF]);
+      if (output === undefined || output === "") return [];
+      const checkpoints: Checkpoint[] = [];
+      for (const id of output.split("\n").filter(Boolean)) {
+        checkpoints.push(publicCheckpoint(await this.readCheckpoint(paths, id)));
+      }
+      return checkpoints;
+    });
   }
 
   async restore(id: string): Promise<void> {
-    const paths = await this.initialize();
-    const checkpoint = await this.requireCheckpoint(paths, id);
-    const current = await this.temporarySnapshot(paths, checkpoint.excluded);
-    const ignored = await this.currentIgnored(paths);
-    const added = await this.git(paths, [
-      "diff", "--name-only", "--diff-filter=A", "--no-renames", "-z", id, current, "--"
-    ]);
-    for (const relative of nulFields(added)) {
-      const target = await safeRemovalPath(paths.repoRoot, relative);
-      if (target !== undefined) await rm(target, { force: true });
-    }
-    await this.restoreSnapshotFiles(paths, id, ignored);
+    await this.withLock(async () => {
+      const paths = await this.initialize();
+      const checkpoint = await this.requireCheckpoint(paths, id);
+      const current = await this.temporarySnapshot(paths, checkpoint.excluded);
+      const ignored = await this.currentIgnored(paths);
+      const added = await this.git(paths, [
+        "diff", "--name-only", "--diff-filter=A", "--no-renames", "-z", id, current, "--"
+      ]);
+      for (const relative of nulFields(added)) {
+        const target = await safeRemovalPath(paths.repoRoot, relative);
+        if (target !== undefined) await rm(target, { force: true });
+      }
+      await this.restoreSnapshotFiles(paths, id, ignored);
+    });
   }
 
   async diff(id: string): Promise<string> {
-    const paths = await this.initialize();
-    const checkpoint = await this.requireCheckpoint(paths, id);
-    const current = await this.temporarySnapshot(paths, checkpoint.excluded);
-    return this.git(paths, ["diff", ...HOST_DIFF_FLAGS, id, current, "--", "."], undefined, 16 * 1024 * 1024);
+    return this.withLock(async () => {
+      const paths = await this.initialize();
+      const checkpoint = await this.requireCheckpoint(paths, id);
+      const current = await this.temporarySnapshot(paths, checkpoint.excluded);
+      return this.git(paths, ["diff", ...HOST_DIFF_FLAGS, id, current, "--", "."], undefined, 16 * 1024 * 1024);
+    });
+  }
+
+  private async withLock<T>(operation: () => Promise<T>): Promise<T> {
+    const repoRoot = await realpath(path.resolve(this.requestedRepoRoot));
+    const requestedBase = path.resolve(process.env.ONEHAND_CHECKPOINT_DIR ?? path.join(homedir(), ".onehand", "checkpoints"));
+    const base = await canonicalStoragePath(requestedBase);
+    if (base === repoRoot || base.startsWith(`${repoRoot}${path.sep}`)) {
+      throw new Error("Checkpoint storage must be outside the work tree");
+    }
+    return withRepositoryLock(repoRoot, {
+      scope: "checkpoints",
+      storageRoot: path.join(base, ".locks"),
+      waitMs: CHECKPOINT_LOCK_WAIT_MS
+    }, operation);
   }
 
   private initialize(): Promise<StorePaths> {

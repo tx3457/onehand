@@ -41,6 +41,7 @@ Useful commands:
 
 ```bash
 node dist/cli.js doctor
+node dist/cli.js doctor --provider deepseek
 node dist/cli.js diff --repo /path/to/repo
 node dist/cli.js run --help
 ```
@@ -53,10 +54,13 @@ npm run demo
 
 The demo prints a prominent disclosure that provider decisions are scripted; it is regression evidence for the execution loop, not a model-quality result.
 
+`doctor` runs fixed local Git/rg checks and reports `ok`, `missing`, or `failed`; it does not use the model's command policy or make a model request. Missing Git produces a nonzero exit code. `rg` is optional because repository search has a Node fallback. `--provider openai|deepseek` additionally checks only the selected provider's key presence, without printing or validating the key against the service.
+
 ## Interactive use
 
 ```bash
 onehand chat --repo /path/to/trusted/repo --mode edit
+onehand chat --repo /path/to/trusted/repo --mode edit --test "pnpm test"
 onehand chat --repo /path/to/trusted/repo --mode ask \
   --provider deepseek --model deepseek-v4-pro --thinking enabled --reasoning-effort high
 ```
@@ -69,9 +73,43 @@ Chat defaults to `edit` mode and the `ctx` profile. Both `run` and `chat` accept
 | `edit` | Allowed | Ask for approval | Verified `finish_task` |
 | `auto` | Allowed | Allowed | Verified `finish_task` |
 
+Both `run` and `chat` accept `--test <command>`. Without an explicit command, JavaScript detection requires a non-empty `scripts.test`, uses `packageManager` when present, otherwise an unambiguous npm/pnpm/yarn/Bun lockfile, then falls back to npm. Bun scripts use `bun run test` so the built-in test runner does not override a custom script. Conflicting lockfiles or invalid package-manager metadata do not silently choose a runner. Chat preserves and displays whether detection selected a command, found no test configuration, found conflicting lockfiles, or encountered invalid metadata; its banner/help explain how to use `--test` when needed. Python detection recognizes `pytest.ini` or a `[tool.pytest.ini_options]` section, rather than assuming every `pyproject.toml` uses pytest; Cargo and Go markers remain supported.
+
 For an approval, answer `y` (yes), `n` (no), or `a` (always for this session). Always approvals apply to the tool, or to the program for `run_command`. EOF and Ctrl+C at an approval deny that operation. Ctrl+C during a run cancels it and returns to the prompt; press it twice at an empty prompt to exit. `NO_COLOR` and redirected output disable ANSI styling.
 
-Use `/mode ask|edit|auto` to switch modes, `/diff` to inspect the working-tree diff, `/undo` to restore the checkpoint before the last run's first mutation, and `/checkpoints` plus `/rewind <n>` to restore an older checkpoint (1 is newest). Edit and auto runs snapshot before the first write or execution in each model turn. Checkpoints live in `~/.onehand/checkpoints/`, separately from your repository's Git history and index; `ONEHAND_CHECKPOINT_DIR` overrides that location and must stay outside the work tree. Ignored and protected paths are excluded, and files over 5 MB are skipped with a note. Undo leaves excluded files untouched, including directories whose ignored contents would prevent restoring a snapshot file. Empty directories may remain. Use one chat session per repository at a time; checkpoint operations across processes are not serialized.
+Use `/mode ask|edit|auto` to switch modes, `/diff` to inspect the working-tree diff, `/undo` to restore the checkpoint before the last run's first mutation, and `/checkpoints` plus `/rewind <n>` to restore an older checkpoint (1 is newest). Edit and auto runs snapshot before the first write or execution in each model turn. Checkpoints live in `~/.onehand/checkpoints/`, separately from your repository's Git history and index; `ONEHAND_CHECKPOINT_DIR` overrides that location and must stay outside the work tree. Ignored and protected paths are excluded, and files over 5 MB are skipped with a note. Undo leaves excluded files untouched, including directories whose ignored contents would prevent restoring a snapshot file. Empty directories may remain.
+
+Chat now acquires an exclusive lock for the canonical repository path, including in ask mode so a later `/mode` change cannot bypass it. Another chat using the same user-state lock directory fails before creating a session or connecting a provider/MCP server. Normal exits release the lock; a confirmed dead owner on the same host can be reclaimed atomically. Live, remote or unreadable owners remain blocked. Locks use a separate private Git store, leaving the source repository's `.git` unchanged. They coordinate participating OneHand processes; they do not stop an editor, `onehand run`, or another program from editing files.
+
+Checkpoint snapshot/list/diff/restore operations also serialize across processes sharing the checkpoint store, with a bounded wait. This protects shadow-Git operations; it is not an atomic snapshot of arbitrary concurrent external writers.
+
+### Persistent chat sessions
+
+Each chat task now saves a normal RunStore state and trace. A separate `session.json` keeps the selected configuration, recent conversation context, cumulative usage, active task and first-mutation checkpoint association. Sessions default to `~/.onehand/sessions/<id>/`, with task runs below `runs/`; these paths must stay outside the target repository. Files are owner-only and common credential patterns are redacted on disk. The banner prints a shell-quoted recovery command.
+
+```bash
+# Choose a new, nonexistent session directory, or omit --session-dir for an automatic ID.
+onehand chat --repo /path/to/repo --test "pnpm test" \
+  --session-dir "$HOME/.onehand/sessions/my-task"
+
+# Restore configuration and continue the unfinished task.
+onehand chat --repo /path/to/repo --resume "$HOME/.onehand/sessions/my-task"
+
+# Extend the cumulative task budget when the previous limit was reached.
+onehand chat --repo /path/to/repo --resume "$HOME/.onehand/sessions/my-task" --max-steps 40
+```
+
+Omitted provider/model/profile/inference/test options restore their saved effective values. Explicit mismatches are rejected; total task budgets and timeouts may be adjusted, while the per-turn output cap remains part of behavior identity. API keys come from the current environment and are not saved. Declarative CLI allow/deny rules restore when omitted; explicit rule changes are rejected. Project/user permission files are loaded again, and temporary `a`/always approvals are not restored.
+
+An unfinished task reuses its exact saved task context and run state. Usage is accounted by the additional usage since the previous saved total, not by adding the cumulative report again. A task already marked successful in RunStore is finalized into the session once without replaying it. Its original checkpoint association remains available for `/undo` after reopening the session.
+
+Task progress/finalization and discard update session memory, usage and the active pointer through one save boundary. If that save fails, their in-memory changes are rolled back too, keeping the unfinished-task guard effective. Discard refreshes usage from an identifiable saved RunStore before archiving; if those records are unavailable, it warns that session totals may be incomplete. Session cost remains an estimate, not a provider billing record.
+
+While a task is unfinished, a new natural-language input cannot replace its recovery pointer, and `/model`, `/profile` or `/mode` cannot change its saved behavior. `/undo`, `/rewind` and `/review` also require finishing or discarding that task first. Use `/exit` and resume with the printed command, or explicitly use `/discard` before starting another task or changing those settings. Discard writes a private `discarded-<id>.json` task/configuration record before clearing the active pointer; it preserves run artifacts and does not change repository files. If saving the cleared pointer fails, the task remains active.
+
+If the process died after provider execution may have begun but before any resumable run state was saved, chat refuses an automatic replay. An active-task recovery error retains the task and enters a restricted prompt where read-only inspection, `/discard`, and `/exit` remain available. Malformed session configuration is rejected before connecting services. Worktree/configuration mismatches and redaction that prevents exact task recovery also fail closed; an already successful run can still be finalized without replaying its redacted prompt. File rollback and conversation recovery are distinct: `/undo` and `/rewind` still restore files, not model history or usage. Inspect the diff before restoring after edits by another program.
+
+To browse a chat's saved task runs in the Web UI, use `onehand ui --runs-dir <session-directory>/runs`.
 
 Root `AGENTS.md` instructions (or `ONEHAND.md` when absent) are loaded at startup, capped at 8 KB, and shown by `/memory`. Each new task also receives the last five inputs and answers, capped at 500 characters each. `/model <id>` changes the model; `/profile <name>` switches the local profile, which also appears in the banner and `/help`.
 
@@ -102,7 +140,7 @@ onehand ui --open
 The command prints a local URL with a single-use access token. Port `0` (the default) chooses a free port; `--open` launches the default browser. Defaults are `~/.onehand/runs` and `eval/results` under the current directory: run it from the repository root, or use `--results-dir` to browse another results folder. Ctrl+C stops the server. No provider keys, model calls, dependencies or frontend build step are needed.
 
 - **Runs:** newest first, with task, repository basename, provider/model, status, stop reason, rounds, calls, tokens and update time. Run details show plan evidence, usage totals, the final message and trace events, including masking, sub-agents, permissions and checkpoints. Raw conversation history and stored tool outputs are excluded.
-- **Checkpoints:** list the run repository's shadow-Git snapshots and display a colored unified diff against its current tree. There is no restore action. The existing `CheckpointStore.list()`/`diff()` methods may initialize or update internal shadow-Git metadata and temporary objects; they leave the source working tree and its Git history/index unchanged. Avoid concurrent checkpoint operations from other processes.
+- **Checkpoints:** list the run repository's shadow-Git snapshots and display a colored unified diff against its current tree. There is no restore action. `CheckpointStore.list()`/`diff()` may initialize or update internal shadow-Git metadata and temporary objects; they leave the source working tree and its Git history/index unchanged. These operations share the checkpoint serialization lock with chat.
 - **Evaluations:** per-variant metrics, readable run completeness, overall token means, SVG cost/resolved-rate bars, and safe Markdown views of `report.md`, `compare-*.md` and `analysis.md`. Directories named with `INVALID` or containing `INVALID.txt` are labeled invalidated and excluded from detail views. A single variant can use the recorded overall token means; missing per-variant metrics display `—`. The UI does not rerun evaluations.
 
 The server binds only `127.0.0.1`. The one-time `?token=` URL is exchanged for an `HttpOnly; SameSite=Strict` session cookie and redirected to a clean URL. Keep that URL private; restart the server to obtain a new one. Every page, asset and API request requires authentication. Exact loopback Host headers and same-origin API Origin headers prevent DNS rebinding and cross-origin access. Only GET is accepted. CSP blocks inline scripts/styles and framing; responses also use `nosniff`, `no-referrer` and `no-store`.
@@ -124,6 +162,8 @@ The library `runAgent({ profile: PROFILES.ctx, ... })` and SWE-bench `--variants
 - `ctx-sandbox-plan-explore`: `ctx-sandbox-plan` plus the isolated, budget-sharing `explore` sub-agent (E9).
 
 Feature flags are validated booleans and default to false. Unknown flags are rejected. Local `run` and `chat` still default to `ctx`; `ctx-notices` is the only new notice profile accepted locally, while all `sandboxCommands` profiles require a Docker executor.
+
+Close-out notices also cover verified no-write tasks and plans whose steps are complete but which still need `finish_task`. They exclude unset/blocked plans, outstanding replanning and unverified revisions; a notice never marks the run successful itself. The new [E11 development protocol](benchmarks/2026-09-30-e11/README.md) distinguishes offline regression evidence from a real-model result and is currently prepared, not run.
 
 All seven v0.3.0 profiles retain their original prompts, tool schemas, and behavior fingerprints. The two notice profiles have distinct fingerprints that include their effective prompt and fixed runtime notice templates. The two `ctx-sandbox-plan` profiles remain included in normal `PROFILES` enumeration. Masking makes no extra model calls and does not discount token budgets. Lean-planning profiles hash their effective lean prompt and tool schemas in their behavior fingerprints.
 

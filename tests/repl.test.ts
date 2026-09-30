@@ -43,7 +43,7 @@ describe("terminal REPL", () => {
       mutationProvider([["always-next.txt", "next\n"]])
     ];
     const { input, output, text } = streams();
-    input.end("first\ny\nsecond\nn\nthird\na\nfourth\n/exit\n");
+    input.end("first\ny\n/discard\nsecond\nn\n/discard\nthird\na\n/discard\nfourth\n/exit\n");
 
     await runRepl(baseOptions(input, output, { providerFactory: () => providers.shift()! }));
 
@@ -71,7 +71,7 @@ describe("terminal REPL", () => {
 
   it("restores the checkpoint from the last mutating run with /undo", async () => {
     const { input, output, text } = streams();
-    input.end("change it\na\n/undo\n/exit\n");
+    input.end("change it\na\n/discard\n/undo\n/exit\n");
 
     await runRepl(baseOptions(input, output, {
       providerFactory: () => mutationProvider([["tracked.txt", "after\n"], ["created.txt", "created\n"]])
@@ -172,7 +172,7 @@ describe("terminal REPL", () => {
       }
     }));
 
-    expect(models).toEqual([undefined, "repl-test-model"]);
+    expect(models).toEqual(["gpt-5.5", "repl-test-model"]);
     expect(text()).toContain("before slash demo");
     expect(text()).toContain("-before");
     expect(text()).toContain("+changed by demo");
@@ -233,16 +233,22 @@ describe("terminal REPL", () => {
       },
       providerFactory: () => scriptedProvider([messageTurn("unused")])
     }));
-    await waitUntil(() => text().includes("onehand> "));
-    input.write("discard this");
-    input.write("\u0003");
-    input.write("real question\n");
-    await waitUntil(() => calls.length === 1);
-    await waitUntil(() => (text().match(/onehand> /g)?.length ?? 0) >= 2);
-    input.write("\u0003");
-    await waitUntil(() => text().includes("Press Ctrl+C again to exit."));
-    input.write("\u0003");
-    await running;
+    try {
+      await waitUntil(() => text().includes("onehand> "));
+      input.write("discard this");
+      input.write("\u0003");
+      input.write("real question\n");
+      await waitUntil(() => calls.length === 1);
+      // Clearing the partial line redraws a prompt too. Wait for the prompt after task
+      // completion/persistence, not merely the second prompt anywhere in the transcript.
+      await waitUntil(() => text().includes("success ·") && text().lastIndexOf("onehand> ") > text().lastIndexOf("success ·"));
+      input.write("\u0003");
+      await waitUntil(() => text().includes("Press Ctrl+C again to exit."));
+      input.write("\u0003");
+    } finally {
+      input.end();
+      await running;
+    }
 
     expect(calls[0]?.task).toBe("real question");
     expect(text()).toContain("Press Ctrl+C again to exit.");

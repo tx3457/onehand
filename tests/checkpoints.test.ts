@@ -149,6 +149,16 @@ describe("CheckpointStore", () => {
     expect(await store.list()).toEqual([second, first]);
   });
 
+  it("serializes concurrent checkpoint operations from separate store objects", async () => {
+    const stores = Array.from({ length: 6 }, () => new CheckpointStore(repo));
+    const snapshots = await Promise.all(stores.map((store, index) => store.snapshot(`parallel ${index}`)));
+
+    const listed = await new CheckpointStore(repo).list();
+
+    expect(listed).toHaveLength(snapshots.length);
+    expect(new Set(listed.map((checkpoint) => checkpoint.id))).toEqual(new Set(snapshots.map((checkpoint) => checkpoint.id)));
+  });
+
   it("refuses checkpoint storage inside the work tree, including a symlink into its Git directory", async () => {
     const before = await sourceGitState(repo);
     process.env.ONEHAND_CHECKPOINT_DIR = path.join(repo, ".git", "checkpoints");

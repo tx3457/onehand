@@ -8,7 +8,7 @@ import { createModelProvider } from "./providers/index.js";
 import { runRepl } from "./repl/index.js";
 import { gitDiff } from "./tools/git.js";
 import { normalizeRepoRoot } from "./tools/pathGuard.js";
-import { runShellCommand } from "./tools/command.js";
+import { runDoctor } from "./doctor.js";
 import { RunReport } from "./types.js";
 import { startWebUi } from "./web/server.js";
 
@@ -36,7 +36,7 @@ program
   .option("--max-output-tokens <n>", "maximum cumulative output tokens", parsePositiveInt, 40000)
   .option("--max-turn-output-tokens <n>", "maximum output tokens for one model turn", parsePositiveInt, 8192)
   .option("--max-wall-sec <n>", "maximum wall time in seconds", parsePositiveInt, 900)
-  .option("--timeout-sec <n>", "command timeout in seconds", parsePositiveInt, 120)
+  .option("--timeout-sec <n>", "command timeout in seconds", parsePositiveInt, 40)
   .option("--model-timeout-sec <n>", "timeout for one model request", parsePositiveInt, 180)
   .option("--profile <name>", "agent profile", "ctx")
   .option("--run-dir <path>", "directory for state.json and trace.jsonl")
@@ -47,7 +47,7 @@ program
   .action(async (task: string, options, command: Command) => {
     const profile = resolveLocalProfile(options.profile);
     if (options.resume && command.getOptionValueSource("profile") !== "cli") {
-      throw new Error("Resume requires explicit --profile matching the original run (use --profile baseline for older CLI runs)");
+      throw new Error("Resume requires explicit --profile matching the original run; legacy state without behavior identity requires a new run");
     }
     const apiKey = options.provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error(`${options.provider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY"} is required for onehand run`);
@@ -95,6 +95,9 @@ program
 program
   .command("chat")
   .requiredOption("--repo <path>", "target repository path")
+  .option("--test <cmd>", "test command to run (overrides automatic detection)")
+  .option("--session-dir <path>", "directory for a new persistent chat session")
+  .option("--resume <path>", "resume a saved chat session; omitted settings are restored")
   .option("--mode <mode>", "permission mode: ask, edit, or auto", parseMode, "edit")
   .option("--provider <name>", "model provider: openai or deepseek", parseProvider, "openai")
   .option("--model <id>", "model id")
@@ -103,30 +106,56 @@ program
   .option("--reasoning-effort <level>", "reasoning effort: high or max", parseReasoningEffort, "high")
   .option("--temperature <n>", "sampling temperature", parseNonNegativeNumber, 0.2)
   .option("--profile <name>", "agent profile", "ctx")
+  .option("--max-steps <n>", "maximum model rounds per task (can be extended on resume)", parsePositiveInt, 20)
+  .option("--max-tool-calls <n>", "maximum total tool calls per task", parsePositiveInt, 40)
+  .option("--max-input-tokens <n>", "maximum cumulative input tokens per task", parsePositiveInt, 300000)
+  .option("--max-output-tokens <n>", "maximum cumulative output tokens per task", parsePositiveInt, 40000)
+  .option("--max-turn-output-tokens <n>", "maximum output tokens per model turn", parsePositiveInt, 8192)
+  .option("--max-wall-sec <n>", "maximum task wall time in seconds", parsePositiveInt, 900)
+  .option("--timeout-sec <n>", "command timeout in seconds", parsePositiveInt, 40)
+  .option("--model-timeout-sec <n>", "timeout for one model request", parsePositiveInt, 180)
   .option("--allow <pattern>", "allow a tool or command pattern", collect, [])
   .option("--deny <pattern>", "deny a tool or command pattern", collect, [])
-  .action(async (options) => {
-    resolveLocalProfile(options.profile);
-    const apiKey = options.provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error(`${options.provider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY"} is required for onehand chat`);
+  .action(async (options, command: Command) => {
+    const selected = (name: string) => options.resume && command.getOptionValueSource(name) !== "cli" ? undefined : options[name];
+    const profile = selected("profile");
+    if (profile !== undefined) resolveLocalProfile(profile);
+    if (options.resume && options.sessionDir) throw new Error("Use --resume or --session-dir, not both");
+    const provider = selected("provider");
+    const apiKey = options.resume ? undefined : provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
+    if (!options.resume && !apiKey) throw new Error(`${provider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY"} is required for onehand chat`);
+    const wallSeconds = selected("maxWallSec");
 
     await runRepl({
       repoPath: options.repo,
-      mode: options.mode,
-      provider: options.provider,
-      model: options.model,
-      baseURL: options.baseUrl,
+      mode: selected("mode"),
+      provider,
+      model: selected("model"),
+      baseURL: selected("baseUrl"),
       apiKey,
-      thinking: options.thinking,
-      reasoningEffort: options.reasoningEffort,
-      temperature: options.temperature,
-      profile: options.profile,
-      cliRules: { allow: options.allow, deny: options.deny },
-      providerFactory: (providerOptions) => createModelProvider({
-        provider: providerOptions.provider,
-        apiKey: providerOptions.apiKey,
-        baseURL: providerOptions.baseURL
-      })
+      thinking: selected("thinking"),
+      reasoningEffort: selected("reasoningEffort"),
+      temperature: selected("temperature"),
+      profile,
+      testCommand: selected("test"),
+      sessionDir: options.sessionDir,
+      resume: options.resume,
+      maxSteps: selected("maxSteps"),
+      maxToolCalls: selected("maxToolCalls"),
+      maxInputTokens: selected("maxInputTokens"),
+      maxOutputTokens: selected("maxOutputTokens"),
+      maxTurnOutputTokens: selected("maxTurnOutputTokens"),
+      maxWallTimeMs: wallSeconds === undefined ? undefined : wallSeconds * 1000,
+      timeoutSec: selected("timeoutSec"),
+      modelTimeoutMs: selected("modelTimeoutSec") === undefined ? undefined : selected("modelTimeoutSec") * 1000,
+      cliRules: options.resume && command.getOptionValueSource("allow") !== "cli" && command.getOptionValueSource("deny") !== "cli"
+        ? undefined : { allow: options.allow, deny: options.deny },
+      providerFactory: (providerOptions) => {
+        const keyName = providerOptions.provider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY";
+        const key = providerOptions.apiKey ?? process.env[keyName];
+        if (!key) throw new Error(`${keyName} is required for onehand chat`);
+        return createModelProvider({ provider: providerOptions.provider, apiKey: key, baseURL: providerOptions.baseURL });
+      }
     });
   });
 
@@ -165,19 +194,16 @@ program
     process.stdout.write(result.data.diff);
   });
 
-program.command("doctor").action(async () => {
-  const checks = [
-    ["OPENAI_API_KEY", process.env.OPENAI_API_KEY ? "ok" : "missing"],
-    ["DEEPSEEK_API_KEY", process.env.DEEPSEEK_API_KEY ? "ok" : "missing"],
-    ["git", (await commandOk("git --version")) ? "ok" : "missing"],
-    ["rg", (await commandOk("rg --version")) ? "ok" : "missing (Node fallback will be used)"],
-    ["node", process.version]
-  ];
-
-  for (const [name, status] of checks) {
-    console.log(`${name}: ${status}`);
-  }
-});
+program.command("doctor")
+  .description("check local prerequisites without making model calls")
+  .option("--provider <name>", "also check the selected provider's API key", parseProvider)
+  .action((options) => {
+    const result = runDoctor({ provider: options.provider });
+    for (const check of result.checks) {
+      console.log(`${check.name}: ${check.status}${check.detail ? ` (${check.detail})` : ""}`);
+    }
+    process.exitCode = result.ok ? 0 : 1;
+  });
 
 try {
   await program.parseAsync(process.argv);
@@ -221,16 +247,6 @@ function printHumanReport(report: RunReport): void {
     console.log("\nDiff:");
     console.log(report.diff);
   }
-}
-
-async function commandOk(command: string): Promise<boolean> {
-  const result = await runShellCommand({
-    command,
-    cwd: process.cwd(),
-    timeoutSec: 10,
-    allowDestructive: false
-  });
-  return result.ok && result.data.exitCode === 0;
 }
 
 function parsePositiveInt(value: string): number {
