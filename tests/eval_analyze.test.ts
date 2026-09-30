@@ -2,9 +2,25 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { analysisMarkdown, analyzeResultSet, diagnoseRun, DISCLAIMER, runAnalysis } from "../eval/analyze.js";
-import type { ResultSet } from "../eval/results-io.js";
+import { parseTrace, type ResultSet } from "../eval/results-io.js";
 import type { EvaluationRunResult, SwebenchManifest, SwebenchRunResult } from "../eval/types.js";
 import { cleanupTempDir, makeTempDir } from "./helpers.js";
+
+describe("completion trace evidence", () => {
+  it("preserves revision zero, rejects malformed evidence, and does not invent legacy verification", () => {
+    expect(parseTrace([]).finalVerification).toBeUndefined();
+    expect(parseTrace([{ event: "run_finished", data: { plan: { status: "completed" } } }]).finalVerification).toBeUndefined();
+    const trace = parseTrace([
+      { event: "budget_notice", data: { round: 4, kind: "closeout", writeRevision: 0, validatedWriteRevision: 0 } },
+      { event: "budget_notice", data: { round: -1, kind: "closeout", writeRevision: 0 } },
+      { event: "budget_notice", data: { round: 5, kind: "unknown", writeRevision: 0 } },
+      { event: "run_finished", data: { plan: { writeRevision: 0, validatedWriteRevision: 0 } } }
+    ]);
+    expect(trace.notices).toEqual([{ round: 4, kind: "closeout", writeRevision: 0, validatedWriteRevision: 0 }]);
+    expect(trace.finalVerification).toEqual({ writeRevision: 0, validatedWriteRevision: 0, verified: true });
+    expect(parseTrace([{ event: "run_finished", data: { plan: { writeRevision: "0", validatedWriteRevision: 0 } } }]).finalVerification).toBeUndefined();
+  });
+});
 
 const dirs: string[] = [];
 afterEach(async () => Promise.all(dirs.splice(0).map(cleanupTempDir)));

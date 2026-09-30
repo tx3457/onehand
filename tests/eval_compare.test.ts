@@ -159,6 +159,49 @@ function metric(results: MetricResult[], name: string): MetricResult {
   return results.find((result) => result.metric === name)!;
 }
 
+describe("completion outcome comparisons", () => {
+  it("does not issue statistical decisions for an incomplete E11 window", () => {
+    const baseline = armRows("baseline", () => ({ resolved: true, agentStatus: "budget_exhausted", stopReason: "token_budget" }));
+    const treatment = armRows("lean", () => ({ resolved: true, agentStatus: "success", stopReason: "explicit_finish" })).slice(1);
+    const comparison = compareResultSets([set([...baseline, ...treatment])], {
+      a: "baseline", b: "lean", bootstrap: 200,
+      primary: ["resolvedAndFinished", "resolvedBudgetExhausted"]
+    });
+    expect(comparison.completeness.complete).toBe(false);
+    expect(metric(comparison.slices.all.metrics, "resolvedAndFinished")).toMatchObject({ estimate: 1, significant: null });
+    expect(comparison.nonInferiority.nonInferior).toBeNull();
+    expect(comparison.interpretation.join("\n")).toContain("inference unavailable");
+    expect(comparison.interpretation.join("\n")).not.toMatch(/significantly|is non-inferior/);
+    expect(comparisonMarkdown(comparison)).toContain("descriptive only (incomplete evaluation)");
+  });
+
+  it("separates resolved explicit finishes from resolved budget stops and false success", () => {
+    const ids = TASKS.slice(0, 4);
+    const statuses: Array<Partial<SwebenchRunResult>> = [
+      { resolved: true, agentStatus: "success", stopReason: "explicit_finish" },
+      { resolved: true, agentStatus: "budget_exhausted", stopReason: "token_budget" },
+      { resolved: false, agentStatus: "success", stopReason: "explicit_finish" },
+      { resolved: true, agentStatus: "failed", stopReason: "runtime_error" }
+    ];
+    const rows = ids.flatMap((id, index) => [
+      row("baseline", id, statuses[index]),
+      row("lean", id, index === 1 ? statuses[0] : statuses[index])
+    ]);
+    const comparison = compareResultSets([set(rows, { instanceIds: ids, plannedRuns: 8 })], {
+      a: "baseline", b: "lean", bootstrap: 200,
+      primary: ["resolvedAndFinished", "resolvedBudgetExhausted"]
+    });
+    expect(metric(comparison.slices.all.metrics, "resolvedAndFinished")).toMatchObject({
+      kind: "rate", a: { mean: 0.25 }, b: { mean: 0.5 }, estimate: 0.25, primary: true
+    });
+    expect(metric(comparison.slices.all.metrics, "resolvedBudgetExhausted")).toMatchObject({
+      kind: "rate", a: { mean: 0.25 }, b: { mean: 0 }, estimate: -0.25, primary: true
+    });
+    expect(metric(comparison.slices.all.metrics, "resolved").estimate).toBe(0);
+    expect(metric(comparison.slices.all.metrics, "falseSuccess").estimate).toBe(0);
+  });
+});
+
 describe("evaluation statistics", () => {
   it("keeps the mulberry32 stream and bootstrap CI of the original report helpers", () => {
     const random = mulberry32(20260925);

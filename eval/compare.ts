@@ -20,7 +20,10 @@ import { bootstrapPValue, bootstrapReplicates, holmAdjust, mean, median, percent
 import type { SwebenchManifest, SwebenchRunResult } from "./types.js";
 
 // Proportions, compared as the paired difference B − A.
-export const RATE_METRICS = ["resolved", "falseSuccess", "emptyPatch", "cacheHitRate", "toolFailureRate", "governanceShare"] as const;
+export const RATE_METRICS = [
+  "resolved", "resolvedAndFinished", "resolvedBudgetExhausted", "falseSuccess", "emptyPatch",
+  "cacheHitRate", "toolFailureRate", "governanceShare"
+] as const;
 // Magnitudes, compared as the geometric-mean change exp(mean ln(B/A)) − 1.
 export const EFFICIENCY_METRICS = [
   "modelRounds", "toolCalls", "inputTokens", "outputTokens", "reasoningTokens", "estimatedCostUsd", "durationMs",
@@ -29,8 +32,10 @@ export const EFFICIENCY_METRICS = [
 export type MetricName = typeof RATE_METRICS[number] | typeof EFFICIENCY_METRICS[number];
 export const DEFAULT_PRIMARY: MetricName[] = ["estimatedCostUsd", "modelRounds"];
 const METRICS: MetricName[] = [...RATE_METRICS, ...EFFICIENCY_METRICS];
-// Constant among resolved runs, so the resolved-in-both slice leaves them out.
-const OUTCOME_METRICS = new Set<MetricName>(["resolved", "falseSuccess", "emptyPatch"]);
+// Outcome metrics are assessed over every paired task, not conditioned on resolution.
+const OUTCOME_METRICS = new Set<MetricName>([
+  "resolved", "resolvedAndFinished", "resolvedBudgetExhausted", "falseSuccess", "emptyPatch"
+]);
 const ALPHA = 0.05;
 // A difference this small is float noise, never an effect.
 const NOISE = 1e-9;
@@ -107,7 +112,7 @@ export type Comparison = {
   warnings: string[];
   interpretation: string[];
   slices: { all: Slice; resolvedBoth: Slice };
-  nonInferiority: { metric: "resolved"; margin: number; difference: number | null; ci95: [number, number] | null; nonInferior: boolean };
+  nonInferiority: { metric: "resolved"; margin: number; difference: number | null; ci95: [number, number] | null; nonInferior: boolean | null };
   costPerResolved: {
     definition: string;
     a: CostArm;
@@ -217,6 +222,12 @@ export function compareResultSets(sets: ResultSet[], options: CompareOptions): C
       b: taskValues(pairs[index]![1])
     }))
   };
+  if (!comparison.completeness.complete) {
+    // Partial valid pairs may be systematically easier than missing runs. Keep their estimates,
+    // but never turn them into affirmative statistical decisions for the planned window.
+    comparison.nonInferiority.nonInferior = null;
+    for (const result of [...all.metrics, ...resolvedBoth.metrics]) result.significant = null;
+  }
   comparison.interpretation = interpretationLines(comparison);
   return comparison;
 }
@@ -319,6 +330,8 @@ function runValues(row: SwebenchRunResult): Record<MetricName, number | undefine
   const tools = trace.tools.length;
   return {
     resolved: row.resolved ? 1 : 0,
+    resolvedAndFinished: row.resolved && row.agentStatus === "success" && row.stopReason === "explicit_finish" ? 1 : 0,
+    resolvedBudgetExhausted: row.resolved && row.agentStatus === "budget_exhausted" ? 1 : 0,
     falseSuccess: row.falseSuccess ? 1 : 0,
     emptyPatch: row.emptyPatch ? 1 : 0,
     cacheHitRate: cacheTotal > 0 ? cacheHit / cacheTotal : undefined,
@@ -509,10 +522,11 @@ function configWarnings(manifests: SwebenchManifest[]): string[] {
 
 function interpretationLines(comparison: Comparison): string[] {
   const find = (metric: MetricName) => comparison.slices.all.metrics.find((result) => result.metric === metric)!;
-  const lines = comparison.settings.primary.map((metric) => describeResult(find(metric), comparison.settings.alpha));
-  if (!comparison.settings.primary.includes("resolved")) lines.push(describeResult(find("resolved"), comparison.settings.alpha));
+  const complete = comparison.completeness.complete;
+  const lines = comparison.settings.primary.map((metric) => describeResult(find(metric), comparison.settings.alpha, complete));
+  if (!comparison.settings.primary.includes("resolved")) lines.push(describeResult(find("resolved"), comparison.settings.alpha, complete));
   const ni = comparison.nonInferiority;
-  if (ni.ci95) {
+  if (ni.ci95 && complete) {
     const bound = `the lower 95% CI bound of B − A, ${pp(ni.ci95[0])}, is ${ni.nonInferior ? "above" : "not above"} ${pp(-ni.margin)}`;
     lines.push(ni.nonInferior
       ? `resolved: B is non-inferior to A at a ${margin(ni.margin)} margin; ${bound}.`
@@ -527,12 +541,13 @@ function interpretationLines(comparison: Comparison): string[] {
   return lines;
 }
 
-function describeResult(result: MetricResult, alpha: number): string {
+function describeResult(result: MetricResult, alpha: number, complete: boolean): string {
   if (result.estimate === null || result.ci95 === null) return `${result.metric}: not estimable; no paired task has a value in both arms.`;
   const [low, high] = result.ci95;
   const effect = result.kind === "rate"
     ? `B − A = ${pp(result.estimate)} (95% CI ${pp(low)} to ${pp(high)})`
     : `B vs A ${signedPct(result.estimate)} (geometric mean; 95% CI ${signedPct(low)} to ${signedPct(high)})`;
+  if (!complete) return `${result.metric}: descriptive only; ${effect}; inference unavailable because the evaluation is incomplete.`;
   if (!result.ciExcludesZero) return `${result.metric}: no detectable difference; ${effect}.`;
   const direction = result.estimate > 0 ? "higher" : "lower";
   if (!result.primary) {
@@ -546,7 +561,9 @@ function describeResult(result: MetricResult, alpha: number): string {
 
 export function comparisonMarkdown(comparison: Comparison): string {
   const { a, b, settings, pairing, completeness, costPerResolved: cost, claims, slices } = comparison;
-  const niNote = comparison.nonInferiority.nonInferior
+  const niNote = comparison.nonInferiority.nonInferior === null
+    ? "non-inferiority not assessed (incomplete evaluation)"
+    : comparison.nonInferiority.nonInferior
     ? `non-inferior at ${margin(settings.margin)}`
     : `non-inferiority not shown at ${margin(settings.margin)}`;
   const completenessRow = (arm: "a" | "b") => {
@@ -589,13 +606,13 @@ export function comparisonMarkdown(comparison: Comparison): string {
     "",
     slices.all.definition,
     "",
-    metricTable(slices.all.metrics, niNote),
+    metricTable(slices.all.metrics, niNote, completeness.complete),
     "",
     `## Tasks resolved in both arms (n = ${slices.resolvedBoth.tasks}), efficiency only`,
     "",
     slices.resolvedBoth.definition,
     "",
-    slices.resolvedBoth.tasks ? metricTable(slices.resolvedBoth.metrics) : "No task was resolved in both arms.",
+    slices.resolvedBoth.tasks ? metricTable(slices.resolvedBoth.metrics, undefined, completeness.complete) : "No task was resolved in both arms.",
     "",
     "## Cost per resolved task",
     "",
@@ -635,24 +652,25 @@ export function comparisonMarkdown(comparison: Comparison): string {
     "",
     "- The task is the unit: each metric is first averaged over an arm's valid runs of a task. invalid_result, harness_error, grading_error, and provider_error rows are left out of every statistic and counted under Completeness, which is defined as in the evaluation summary. Runs an environment failure ended, and runs whose patch made grading time out, run out of memory, or error, are valid (scored unresolved when grading failed) and counted separately.",
     "- Every result directory must share the dataset, images, harness, agent limits, container limits, model, provider, endpoint, and inference settings, and each variant's rows must come from one agent version (agentFingerprint and sourceFingerprint); otherwise the comparison refuses to run.",
-    "- Rates (resolved, falseSuccess, emptyPatch) and trace proportions (cacheHitRate, toolFailureRate, governanceShare) report Δ = mean over tasks of B − A, in percentage points.",
+    "- Rates (resolved, resolvedAndFinished, resolvedBudgetExhausted, falseSuccess, emptyPatch) and trace proportions (cacheHitRate, toolFailureRate, governanceShare) report Δ = mean over tasks of B − A, in percentage points. resolvedAndFinished requires resolved + agent success + explicit_finish; resolvedBudgetExhausted requires resolved + budget_exhausted.",
     "- Efficiency metrics report the geometric-mean change exp(mean ln((B+ε)/(A+ε))) − 1, with ε = 1e-9 × the metric's mean; tasks where both arms are 0 are skipped. Their A and B cells show the mean / median of per-task means.",
     "- 95% CIs are percentile intervals over resamples of tasks with replacement, shared by all metrics; p = 2·min(P(stat ≤ 0), P(stat ≥ 0)), clamped to [1/B, 1]. The parenthesized Holm-adjusted p applies to the primary metrics only; every other p-value is unadjusted and exploratory.",
     "- \"Significant\" requires a Holm-adjusted p ≤ α and a CI that excludes 0. A CI that includes 0 is reported as no detectable difference, which is not evidence of equivalence.",
+    "- Incomplete windows retain descriptive estimates over valid pairs, but significance and non-inferiority decisions are unavailable; table p-values are suppressed. JSON retains computed p-values for diagnostics, with significant and nonInferior set to null.",
     `- resolved is non-inferior when the lower CI bound of B − A is above −${margin(settings.margin)}.`,
     "- toolFailureRate counts tool calls that were rejected, errored, or timed out; a failing test run is not a failure. governanceShare is (set_plan + update_plan + finish_task) calls over all tool calls. modelLatencyMs and toolTimeMs sum model_turn.latencyMs and tool_result.durationMs."
   ].join("\n") + "\n";
 }
 
-function metricTable(results: MetricResult[], resolvedNote?: string): string {
+function metricTable(results: MetricResult[], resolvedNote?: string, complete = true): string {
   return [
     "| metric | A | B | Δ or %change | 95% CI | p (Holm) | note |",
     "|---|---:|---:|---:|---:|---:|---|",
-    ...results.map((result) => metricRow(result, result.metric === "resolved" ? resolvedNote : undefined))
+    ...results.map((result) => metricRow(result, result.metric === "resolved" ? resolvedNote : undefined, complete))
   ].join("\n");
 }
 
-function metricRow(result: MetricResult, extraNote?: string): string {
+function metricRow(result: MetricResult, extraNote?: string, complete = true): string {
   const rate = result.kind === "rate";
   const hasValues = result.tasks + result.skippedBothZero > 0;
   const value = (arm: { mean: number; median: number }) => !hasValues
@@ -662,8 +680,8 @@ function metricRow(result: MetricResult, extraNote?: string): string {
   const ci = result.ci95 === null
     ? "-"
     : rate ? `${pp(result.ci95[0])} to ${pp(result.ci95[1])}` : `${signedPct(result.ci95[0])} to ${signedPct(result.ci95[1])}`;
-  const p = result.p === null ? "-" : result.pHolm === null ? formatP(result.p) : `${formatP(result.p)} (${formatP(result.pHolm)})`;
-  const verdict = result.estimate === null
+  const p = !complete || result.p === null ? "-" : result.pHolm === null ? formatP(result.p) : `${formatP(result.p)} (${formatP(result.pHolm)})`;
+  const verdict = !complete ? "descriptive only (incomplete evaluation)" : result.estimate === null
     ? "not estimable"
     : !result.ciExcludesZero
       ? "no detectable difference"

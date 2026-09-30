@@ -78,6 +78,7 @@ export function summarizeSwebench(manifest: SwebenchManifest, rows: SwebenchRunR
       unclaimedResolved: claimed(false, true),
       unclaimedUnresolved: claimed(false, false)
     },
+    completion: completionSummary(scored),
     patches: {
       emptyPatchRuns,
       emptyPatchRate: scored.length ? emptyPatchRuns / scored.length : 0,
@@ -125,6 +126,7 @@ export function summarizeSwebench(manifest: SwebenchManifest, rows: SwebenchRunR
         plannedRuns: manifest.instanceIds.length * manifest.repetitions,
         observedRuns: all.length,
         ...resolvedRate(runs),
+        completion: completionSummary(runs),
         falseSuccessRate: mean(runs.map((row) => (row.falseSuccess ? 1 : 0))),
         emptyPatchRate: mean(runs.map((row) => (row.emptyPatch ? 1 : 0))),
         meanCostUsd: mean(runs.map((row) => row.estimatedCostUsd)),
@@ -187,6 +189,15 @@ export function swebenchReportMarkdown(manifest: SwebenchManifest, summary: Sweb
     `| claimed success | ${claims.claimedResolved} | ${claims.claimedUnresolved} (false success) |`,
     `| no success claim | ${claims.unclaimedResolved} | ${claims.unclaimedUnresolved} |`,
     "",
+    "## Completion and budget notices",
+    "",
+    "Descriptive counts over scored runs. Compare resolvedAndFinished and resolvedBudgetExhausted with eval:compare for paired estimates.",
+    "",
+    ...completionLines(summary.completion),
+    ...(summary.perVariant ? summary.perVariant.flatMap((variant) => [
+      "", `### ${variant.variant}`, "", ...completionLines(variant.completion)
+    ]) : []),
+    "",
     "## Patches",
     "",
     `- Empty patches: ${patches.emptyPatchRuns} of ${summary.scoredRuns} (${pct(patches.emptyPatchRate)}); the harness does not run on an empty patch, so it is unresolved.`,
@@ -243,6 +254,53 @@ export function swebenchReportMarkdown(manifest: SwebenchManifest, summary: Sweb
 }
 
 type Distribution = { mean: number; p50: number; p95: number; max: number };
+
+function completionSummary(rows: SwebenchRunResult[]) {
+  const traces = rows.map((row) => parseTrace(row.traceEvents));
+  const finishesAfterCloseout: number[] = [];
+  rows.forEach((row, index) => {
+    if (row.agentStatus !== "success" || row.stopReason !== "explicit_finish") return;
+    const trace = traces[index]!;
+    const finish = trace.tools.find((tool) => tool.name === "finish_task" && tool.ok);
+    if (!finish) return;
+    const lastCloseout = trace.notices.filter((notice) => notice.kind === "closeout" && notice.round <= finish.round)
+      .sort((a, b) => a.round - b.round).at(-1);
+    // The notice is inserted before its recorded round: finishing in that round takes one model round.
+    if (lastCloseout) finishesAfterCloseout.push(finish.round - lastCloseout.round + 1);
+  });
+  return {
+    runs: rows.length,
+    resolvedAndFinished: rows.filter((row) => row.resolved && row.agentStatus === "success" && row.stopReason === "explicit_finish").length,
+    resolvedBudgetExhausted: rows.filter((row) => row.resolved && row.agentStatus === "budget_exhausted").length,
+    finalVerification: {
+      knownRuns: traces.filter((trace) => trace.finalVerification !== undefined).length,
+      verifiedRuns: traces.filter((trace) => trace.finalVerification?.verified).length
+    },
+    notices: {
+      // New run_finished records carry revision fields. Their absence means telemetry coverage
+      // is unknown, not that a historical/truncated run emitted zero notices.
+      knownRuns: traces.filter((trace) => trace.finalVerification !== undefined).length,
+      unknownRuns: traces.filter((trace) => trace.finalVerification === undefined).length,
+      budget: sum(traces.map((trace) => trace.notices.filter((notice) => notice.kind === "budget").length)),
+      closeout: sum(traces.map((trace) => trace.notices.filter((notice) => notice.kind === "closeout").length)),
+      runsWithNotices: traces.filter((trace) => trace.notices.length).length,
+      finishedAfterCloseout: finishesAfterCloseout.length,
+      roundsFromLastCloseoutToFinish: finishesAfterCloseout.length ? distribution(finishesAfterCloseout) : null
+    }
+  };
+}
+
+function completionLines(value: ReturnType<typeof completionSummary>): string[] {
+  const { notices, finalVerification } = value;
+  return [
+    `- Resolved and explicitly finished: ${value.resolvedAndFinished} of ${value.runs}`,
+    `- Resolved but budget exhausted: ${value.resolvedBudgetExhausted} of ${value.runs}`,
+    `- Final revision verified: ${finalVerification.verifiedRuns} of ${finalVerification.knownRuns} runs with recorded revision evidence; ${value.runs - finalVerification.knownRuns} unknown (an earlier passing test is not final verification).`,
+    `- Recorded notices: ${notices.budget} budget, ${notices.closeout} close-out, across ${notices.runsWithNotices} runs.`,
+    `- Notice telemetry: ${notices.knownRuns} known, ${notices.unknownRuns} unknown (based on final revision-bearing trace records); missing telemetry does not establish zero notices.`,
+    `- Explicit finishes after a close-out notice: ${notices.finishedAfterCloseout}; mean model rounds from last close-out to finish: ${notices.roundsFromLastCloseoutToFinish?.mean.toFixed(2) ?? "unknown"} (the notice's round counts as one).`
+  ];
+}
 
 function distribution(values: number[]): Distribution {
   const sorted = [...values].sort((a, b) => a - b);

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { bootstrapMeanCi } from "../eval/stats.js";
@@ -6,7 +6,10 @@ import { capReachedFrom, circuitOpenFrom } from "../eval/results-io.js";
 import { swebenchInfraPolicy } from "../eval/swebench/runInstance.js";
 import { DIAGNOSTIC_NOTE, summarizeSwebench, swebenchReportMarkdown, writeSwebenchReport } from "../eval/swebench/summary.js";
 import type { SwebenchManifest, SwebenchRunResult } from "../eval/types.js";
-import { cleanupTempDir, makeTempDir } from "./helpers.js";
+import { runAgent } from "../src/agent/runner.js";
+import { PROFILES } from "../src/agent/profile.js";
+import type { ModelProvider, NormalizedToolCall } from "../src/providers/types.js";
+import { cleanupTempDir, git, initGitRepo, makeTempDir } from "./helpers.js";
 
 const INSTANCES = ["django__django-1", "django__django-2", "sympy__sympy-1", "sympy__sympy-2"];
 const dirs: string[] = [];
@@ -69,6 +72,86 @@ function observedRows(): SwebenchRunResult[] {
 }
 
 describe("SWE-bench summary", () => {
+  it("consumes real runner notice and final-revision trace records with scripted model decisions", async () => {
+    const base = await makeTempDir("onehand-completion-trace-");
+    dirs.push(base);
+    const repo = path.join(base, "repo");
+    const runDir = path.join(base, "run");
+    await mkdir(repo);
+    await initGitRepo(repo);
+    await writeFile(path.join(repo, "check.cjs"), "process.exit(0);\n");
+    await git(["add", "check.cjs"], repo);
+    await git(["commit", "-m", "fixture"], repo);
+    const calls: NormalizedToolCall[] = [
+      { id: "1", name: "set_plan", arguments: { steps: ["verify"] } },
+      { id: "2", name: "run_tests", arguments: {} },
+      { id: "3", name: "update_plan", arguments: { stepId: 1, status: "completed", evidence: "check passed" } },
+      { id: "4", name: "list_files", arguments: {} },
+      { id: "5", name: "list_files", arguments: {} },
+      { id: "6", name: "finish_task", arguments: { summary: "verified unchanged fixture" } }
+    ];
+    const provider: ModelProvider = {
+      name: "deepseek",
+      initialHistory: (content) => [{ role: "user", content }],
+      toolResultItem: (call, content) => ({ role: "tool", tool_call_id: call.id, content }),
+      complete: async () => {
+        const call = calls.shift();
+        if (!call) throw new Error("Scripted trace fixture exhausted");
+        return { historyItems: [{ role: "assistant", tool_calls: [call] }], toolCalls: [call], message: "",
+          usage: { inputTokens: 1, outputTokens: 1, cacheHitInputTokens: 0, cacheMissInputTokens: 1, totalTokens: 2 } };
+      }
+    };
+    const report = await runAgent({
+      task: "verify the unchanged fixture", repoPath: repo, runDir, persistence: true,
+      provider, profile: PROFILES["ctx-notices"], testCommand: "node check.cjs", maxSteps: 100
+    });
+    expect(report.status).toBe("success");
+    const traceEvents = (await readFile(report.tracePath!, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    // The grading verdict here is a fixture, not an official-harness/model-quality claim.
+    const summary = summarizeSwebench(manifest(), [row(INSTANCES[0]!, 1, {
+      resolved: true, agentStatus: report.status, stopReason: report.stopReason, traceEvents
+    })], false);
+    expect(summary.completion).toMatchObject({
+      resolvedAndFinished: 1, finalVerification: { knownRuns: 1, verifiedRuns: 1 },
+      notices: { knownRuns: 1, unknownRuns: 0, budget: 0, closeout: 1, finishedAfterCloseout: 1,
+        roundsFromLastCloseoutToFinish: { mean: 1 } }
+    });
+  });
+
+  it("reports completion, recorded notices and final verification without inferring missing evidence", () => {
+    const rows = [
+      row(INSTANCES[0]!, 1, {
+        resolved: true,
+        traceEvents: [
+          { event: "budget_notice", data: { round: 2, kind: "budget", writeRevision: 0 } },
+          { event: "budget_notice", data: { round: 4, kind: "closeout", writeRevision: 1, validatedWriteRevision: 1 } },
+          { event: "tool_result", data: { round: 6, name: "finish_task", ok: true } },
+          { event: "run_finished", data: { plan: { writeRevision: 1, validatedWriteRevision: 1 } } }
+        ]
+      }),
+      row(INSTANCES[1]!, 1, {
+        resolved: true, agentStatus: "budget_exhausted", stopReason: "token_budget",
+        traceEvents: [{ event: "run_finished", data: { plan: { writeRevision: 2, validatedWriteRevision: 1 } } }]
+      }),
+      // A historical row's ever-passed test does not establish final-revision verification.
+      row(INSTANCES[2]!, 1, { agentVerificationPassed: true }),
+      row(INSTANCES[3]!, 1, { failureClass: "provider_error", traceEvents: [
+        { event: "budget_notice", data: { round: 1, kind: "closeout", writeRevision: 0 } }
+      ] })
+    ];
+    const summary = summarizeSwebench(manifest(), rows, false);
+    expect(summary.completion).toEqual({
+      runs: 3, resolvedAndFinished: 1, resolvedBudgetExhausted: 1,
+      finalVerification: { knownRuns: 2, verifiedRuns: 1 },
+      notices: { knownRuns: 2, unknownRuns: 1, budget: 1, closeout: 1, runsWithNotices: 1, finishedAfterCloseout: 1,
+        roundsFromLastCloseoutToFinish: { mean: 3, p50: 3, p95: 3, max: 3 } }
+    });
+    const markdown = swebenchReportMarkdown(manifest(), summary);
+    expect(markdown).toContain("Resolved and explicitly finished: 1 of 3");
+    expect(markdown).toContain("Final revision verified: 1 of 2 runs with recorded revision evidence");
+    expect(markdown).toContain("Notice telemetry: 2 known, 1 unknown");
+  });
+
   it("computes the resolved rate with a task-cluster CI, the breakdowns, and the claim table", () => {
     const summary = summarizeSwebench(manifest(), observedRows(), false);
     expect(summary.scoredRuns).toBe(7);

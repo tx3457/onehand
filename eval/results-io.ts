@@ -228,10 +228,17 @@ export type ParsedTrace = {
   nudges: number;
   stopReason?: string;
   environmentFailures: number;
+  notices: Array<{
+    round: number;
+    kind: "budget" | "closeout";
+    writeRevision: number;
+    validatedWriteRevision?: number;
+  }>;
+  finalVerification?: { writeRevision: number; validatedWriteRevision: number; verified: boolean };
 };
 
 export function parseTrace(events: Array<Record<string, unknown>> | undefined): ParsedTrace {
-  const trace: ParsedTrace = { turns: [], tools: [], textOnlyTurns: 0, nudges: 0, environmentFailures: 0 };
+  const trace: ParsedTrace = { turns: [], tools: [], textOnlyTurns: 0, nudges: 0, environmentFailures: 0, notices: [] };
   for (const event of Array.isArray(events) ? events : []) {
     const data = (event?.data ?? {}) as Record<string, any>;
     if (event?.event === "run_started" || event?.event === "run_resumed") {
@@ -263,6 +270,21 @@ export function parseTrace(events: Array<Record<string, unknown>> | undefined): 
       if (data.nudge === true) trace.nudges += 1;
     } else if (event?.event === "run_finished") {
       trace.stopReason = text(data.stopReason);
+      const writeRevision = data.plan?.writeRevision;
+      const validatedWriteRevision = data.plan?.validatedWriteRevision;
+      trace.finalVerification = Number.isSafeInteger(writeRevision) && writeRevision >= 0 &&
+        Number.isSafeInteger(validatedWriteRevision) && validatedWriteRevision >= -1 && validatedWriteRevision <= writeRevision
+        ? { writeRevision, validatedWriteRevision, verified: writeRevision === validatedWriteRevision }
+        : undefined;
+    } else if (event?.event === "budget_notice") {
+      if ((data.kind === "budget" || data.kind === "closeout") && Number.isSafeInteger(data.round) && data.round > 0 &&
+          Number.isSafeInteger(data.writeRevision) && data.writeRevision >= 0) {
+        trace.notices.push({
+          round: data.round, kind: data.kind, writeRevision: data.writeRevision,
+          ...(Number.isSafeInteger(data.validatedWriteRevision) && data.validatedWriteRevision >= -1 &&
+              data.validatedWriteRevision <= data.writeRevision ? { validatedWriteRevision: data.validatedWriteRevision } : {})
+        });
+      }
     } else if (event?.event === "environment_failure") {
       trace.environmentFailures += 1;
     }

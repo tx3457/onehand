@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "status": "offline_verified_real_evaluation_pending",
+  "checkedAt": "2026-09-30T01:43:25.258Z",
+  "sourceFingerprint": "c5da04c73ef906c1b0bc6b4d574e8dfd1955b5db52f8b3f957d756b6e380283e",
+  "gitHead": "f1bea5377cc20f2551fa514d6142c1d37f7012bd",
+  "gitDirty": true,
+  "profileFingerprints": {
+    "baseline": "674793f83c5ac14a6ed46e1fd0e4327b964cbb2101250aa7db05fc7102486f09",
+    "ctx": "9bc9203921b32815a791ae99358191da81907c87899d30fc1d9352add1d281ec",
+    "ctx-sandbox": "e7797b1a43ae1c14f94e6335b3098e02925ed010db410e8b565696c90c833792",
+    "ctx-sandbox-mask": "0154454540dddb75a0398b96bf0b067be82995b0a8c2f46c6c1808771701a0ab",
+    "full": "c9edf2f143c91269296caef5292fcdb6dd5bc58f30475587ba7f6df618a4842e",
+    "ctx-sandbox-plan": "804d32f8b7b90a2892a3cc577b24c869489fc509c3a00f04adaaa9e3e520c329",
+    "ctx-sandbox-plan-explore": "ff74ca6855e22b9fe33a43f9a8254daee28d5f70c792715c5a6165575d4b52f1",
+    "ctx-notices": "9fa5124e0c0604e890cd663ad359e55bb7f3caf0dc7a6c9eb907eda094c397a3",
+    "ctx-sandbox-notices": "ed7e7fd37077b359cd54f65984df0934623402d074583e55d6ea5b43885d6517"
+  },
+  "verification": {
+    "typecheck": "passed",
+    "build": "passed",
+    "demo": "passed",
+    "testFiles": 61,
+    "testsPassed": 673,
+    "dockerTestsSkipped": 6,
+    "legacyProfilePinsMatched": 7,
+    "codeReview": "APPROVE",
+    "architectureReview": "CLEAR"
+  },
+  "realModelEvaluation": {
+    "status": "not_run",
+    "apiCalls": 0,
+    "reason": "Docker runtime/socket unavailable; execution host and spending parameters pending"
+  }
+}
