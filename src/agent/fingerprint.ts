@@ -7,7 +7,7 @@ import {
   CLOSEOUT_NOTICE_TEMPLATE,
   OUTPUT_LIMIT_NUDGE,
   TEXT_ONLY_NUDGE
-} from "./runner.js";
+} from "./behaviorText.js";
 import { toolDefinitionsFor } from "../tools/registry.js";
 
 // sha256 of `parts` serialized as JSON with every object's keys sorted by code point, so the

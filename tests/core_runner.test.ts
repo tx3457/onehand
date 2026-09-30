@@ -2,9 +2,11 @@ import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SYSTEM_PROMPT } from "../src/agent/prompt.js";
+import { PROFILES } from "../src/agent/profile.js";
 import { categorizeToolFailure, ModelCallError, runAgent } from "../src/agent/runner.js";
 import { APIConnectionError } from "openai";
 import { createModelProvider, ModelProvider, ProviderRequest, ProviderTurn } from "../src/providers/index.js";
+import { OpenAIResponsesProvider } from "../src/providers/openaiResponses.js";
 import { ExecRequest, Executor, PathMapper } from "../src/runtime/executor.js";
 import { runHostGit } from "../src/tools/git.js";
 import { CommandExecution, ToolResult } from "../src/types.js";
@@ -191,6 +193,161 @@ describe("strict agent runner", () => {
     expect(state.history.filter((item: any) => item.type === "function_call_output")).toHaveLength(2);
   });
 
+  it("stops before every tool when the model call consumed the wall-time budget", async () => {
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const complete = vi.fn(async () => {
+      now += 80;
+      return {
+        ...call("set_plan", { steps: ["inspect"] }, "1"),
+        historyItems: [{ type: "function_call_batch", call_ids: ["1", "2"] }],
+        toolCalls: [
+          { id: "1", name: "set_plan", arguments: JSON.stringify({ steps: ["inspect"] }) },
+          { id: "2", name: "list_files", arguments: "{}" }
+        ]
+      };
+    });
+    try {
+      const report = await runAgent({
+        task: "inspect", repoPath: repo, provider: baseProvider(complete), enforcePlanning: true,
+        persistence: true, runDir, maxWallTimeMs: 50, modelTimeoutMs: 200, maxApiAttempts: 1
+      });
+
+      expect(report).toMatchObject({ status: "budget_exhausted", stopReason: "wall_time_budget", usage: { toolCalls: 0 } });
+      const state = JSON.parse(await readFile(path.join(runDir, "state.json"), "utf8"));
+      expect(state.history.filter((item: any) => item.type === "function_call_output")).toHaveLength(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("rechecks wall time after each batched tool and pairs the skipped remainder", async () => {
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const executed: string[] = [];
+    const slowTools = {
+      definitions: [{
+        type: "function" as const,
+        name: "slow_read",
+        description: "A delayed read-only test tool.",
+        parameters: { type: "object" as const, properties: {}, additionalProperties: false }
+      }],
+      execute: async (name: string) => {
+        executed.push(name);
+        now += 80;
+        return { ok: true as const, data: "done" };
+      }
+    };
+    const turn: ProviderTurn = {
+      ...call("slow_read", {}, "1"),
+      historyItems: [{ type: "function_call_batch", call_ids: ["1", "2"] }],
+      toolCalls: [
+        { id: "1", name: "slow_read", arguments: "{}" },
+        { id: "2", name: "slow_read", arguments: "{}" }
+      ]
+    };
+    try {
+      const report = await runAgent({
+        task: "inspect", repoPath: repo, provider: scriptedProvider([turn]), enforcePlanning: false,
+        persistence: true, runDir, extraTools: slowTools, maxWallTimeMs: 50
+      });
+
+      expect(report).toMatchObject({ status: "budget_exhausted", stopReason: "wall_time_budget", usage: { toolCalls: 1 } });
+      expect(executed).toEqual(["slow_read"]);
+      const state = JSON.parse(await readFile(path.join(runDir, "state.json"), "utf8"));
+      expect(state.history.filter((item: any) => item.type === "function_call_output")).toHaveLength(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each([
+    { name: "profile", first: {}, resumed: { profile: PROFILES.ctx }, expected: /saved profile/ },
+    { name: "test command", first: { testCommand: "node test.cjs" }, resumed: { testCommand: "npm test" }, expected: /run behavior/ },
+    { name: "targeted-verification policy", first: { allowTargetedVerification: false }, resumed: { allowTargetedVerification: true }, expected: /run behavior/ },
+    { name: "inference policy", first: { temperature: 0.2 }, resumed: { temperature: 0.7 }, expected: /run behavior/ }
+  ])("rejects resume after $name drift before calling the provider", async ({ first, resumed, expected }) => {
+    await writeFile(path.join(repo, "tracked.txt"), "stable\n");
+    await git(["add", "tracked.txt"], repo);
+    await git(["commit", "-m", "resume identity fixture"], repo);
+    const firstProvider = scriptedProvider([call("set_plan", { steps: ["inspect"] }, "1")]);
+    await runAgent({
+      task: "inspect", repoPath: repo, provider: firstProvider, enforcePlanning: true,
+      persistence: true, runDir, maxSteps: 1, ...first
+    });
+    const complete = vi.fn(async () => messageTurn("must not run"));
+    await expect(runAgent({
+      task: "inspect", repoPath: repo, provider: baseProvider(complete), enforcePlanning: true,
+      persistence: true, resume: runDir, maxSteps: 2, ...resumed
+    })).rejects.toThrow(expected);
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy state without behavior identity with an actionable new-run message", async () => {
+    await writeFile(path.join(repo, "tracked.txt"), "stable\n");
+    await git(["add", "tracked.txt"], repo);
+    await git(["commit", "-m", "legacy resume fixture"], repo);
+    await runAgent({
+      task: "inspect", repoPath: repo, provider: scriptedProvider([call("set_plan", { steps: ["inspect"] }, "1")]),
+      enforcePlanning: true, persistence: true, runDir, maxSteps: 1
+    });
+    const statePath = path.join(runDir, "state.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    delete state.profile;
+    delete state.agentBehaviorFingerprint;
+    delete state.runBehaviorFingerprint;
+    await writeFile(statePath, JSON.stringify(state));
+    const complete = vi.fn(async () => messageTurn("must not run"));
+
+    await expect(runAgent({
+      task: "inspect", repoPath: repo, provider: baseProvider(complete), enforcePlanning: true,
+      persistence: true, resume: runDir, maxSteps: 2
+    })).rejects.toThrow(/start a new run/i);
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("rejects an environment-selected endpoint change before sending resumed history", async () => {
+    await writeFile(path.join(repo, "tracked.txt"), "stable\n");
+    await git(["add", "tracked.txt"], repo);
+    await git(["commit", "-m", "endpoint resume fixture"], repo);
+    const previous = process.env.OPENAI_BASE_URL;
+    // Construct the real SDK provider, but prohibit network if the identity guard regresses.
+    const complete = vi.spyOn(OpenAIResponsesProvider.prototype, "complete").mockResolvedValue(messageTurn("must not run"));
+    try {
+      process.env.OPENAI_BASE_URL = "https://first.invalid/v1";
+      await runAgent({ task: "inspect", repoPath: repo, apiKey: "offline-test-key",
+        enforcePlanning: true, persistence: true, runDir, maxSteps: 0 });
+      process.env.OPENAI_BASE_URL = "https://different.invalid/v1";
+      await expect(runAgent({ task: "inspect", repoPath: repo, apiKey: "offline-test-key",
+        enforcePlanning: true, persistence: true, resume: runDir, maxSteps: 1 }))
+        .rejects.toThrow(/run behavior/);
+      expect(complete).not.toHaveBeenCalled();
+    } finally {
+      complete.mockRestore();
+      if (previous === undefined) delete process.env.OPENAI_BASE_URL;
+      else process.env.OPENAI_BASE_URL = previous;
+    }
+  });
+
+  it("persists behavior identity and resumes when it matches", async () => {
+    await writeFile(path.join(repo, "tracked.txt"), "stable\n");
+    await git(["add", "tracked.txt"], repo);
+    await git(["commit", "-m", "matching resume fixture"], repo);
+    const options = {
+      task: "inspect", repoPath: repo, enforcePlanning: true, persistence: true, runDir,
+      profile: PROFILES.ctx, testCommand: "node test.cjs", allowTargetedVerification: true
+    };
+    await runAgent({ ...options, provider: scriptedProvider([call("set_plan", { steps: ["inspect"] }, "1")]), maxSteps: 1 });
+    const state = JSON.parse(await readFile(path.join(runDir, "state.json"), "utf8"));
+    expect(state).toMatchObject({ profile: PROFILES.ctx });
+    expect(state.agentBehaviorFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(state.runBehaviorFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    const complete = vi.fn(async () => messageTurn("done"));
+
+    await runAgent({ ...options, provider: baseProvider(complete), resume: runDir, maxSteps: 2, maxTextOnlyNudges: 0 });
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects resume after an uncommitted worktree change", async () => {
     await writeFile(path.join(repo, "tracked.txt"), "before\n");
     await git(["add", "tracked.txt"], repo);
@@ -257,6 +414,20 @@ describe("strict agent runner", () => {
       finishReason: "tool_calls",
       usage: { inputTokens: 1, outputTokens: 1, cacheHitInputTokens: 0, cacheMissInputTokens: 1, totalTokens: 2 }
     };
+    let notifyStarted!: () => void;
+    let releaseTool!: () => void;
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
+    const released = new Promise<void>((resolve) => { releaseTool = resolve; });
+    const executor: Executor = {
+      kind: "local",
+      pathMapper: new PathMapper(repo, repo),
+      async run(request) {
+        notifyStarted();
+        await released;
+        return { ok: true, data: { command: request.program, exitCode: 0, stdout: "done\n", stderr: "",
+          timedOut: false, durationMs: 0, truncated: false } };
+      }
+    };
     const running = runAgent({
       task: "run diagnostic",
       repoPath: repo,
@@ -264,12 +435,17 @@ describe("strict agent runner", () => {
       enforcePlanning: true,
       persistence: true,
       runDir,
-      maxSteps: 1
+      maxSteps: 1,
+      executor
     });
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    const state = JSON.parse(await readFile(path.join(runDir, "state.json"), "utf8"));
-    expect(state.history.filter((item: any) => item.type === "function_call_output")).toHaveLength(2);
-    await running;
+    try {
+      await Promise.race([started, running.then(() => { throw new Error("Run ended before the second tool started"); })]);
+      const state = JSON.parse(await readFile(path.join(runDir, "state.json"), "utf8"));
+      expect(state.history.filter((item: any) => item.type === "function_call_output")).toHaveLength(2);
+    } finally {
+      releaseTool();
+      await running;
+    }
   });
 
   it("passes DeepSeek reasoning_content back on later requests without persisting it", async () => {

@@ -4,8 +4,9 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { PlanSnapshot, RunStatus, RunUsage, StopReason } from "../types.js";
 import type { ToolExecutionRecord } from "../tools/registry.js";
+import { resolveFeatures, type AgentProfile } from "./profile.js";
 
-export const RUN_STATE_VERSION = 3;
+export const RUN_STATE_VERSION = 4;
 
 export type PersistedRunState = {
   schemaVersion: number;
@@ -16,6 +17,9 @@ export type PersistedRunState = {
   worktreeFingerprint: string | null;
   provider: "openai" | "deepseek";
   model: string;
+  profile: AgentProfile;
+  agentBehaviorFingerprint: string;
+  runBehaviorFingerprint: string;
   history: unknown[];
   plan: PlanSnapshot;
   usage: RunUsage;
@@ -80,8 +84,12 @@ export class RunStore {
     const raw = await readFile(statePath, "utf8");
     const state = JSON.parse(raw) as PersistedRunState;
     if (state.schemaVersion !== RUN_STATE_VERSION) {
-      throw new Error(`Unsupported state schema version: ${state.schemaVersion}`);
+      const guidance = typeof state.schemaVersion === "number" && state.schemaVersion < RUN_STATE_VERSION
+        ? "; this legacy state predates resumable behavior identity, so start a new run"
+        : "";
+      throw new Error(`Unsupported state schema version: ${state.schemaVersion}${guidance}`);
     }
+    validateBehaviorIdentity(state);
     const usage = (state.usage ?? {}) as Record<string, unknown>;
     for (const field of new Set([...USAGE_FIELDS, ...Object.keys(usage)])) {
       if (!Number.isFinite(usage[field])) throw new Error(`Corrupt run state: usage.${field} is not a number`);
@@ -91,6 +99,30 @@ export class RunStore {
     }
     const store = new RunStore({ runId: state.runId, runDir: path.dirname(statePath) });
     return { store, state };
+  }
+}
+
+function validateBehaviorIdentity(state: PersistedRunState): void {
+  if (!state.profile || state.agentBehaviorFingerprint === undefined || state.runBehaviorFingerprint === undefined) {
+    throw new Error("Run state has no complete behavior identity; start a new run instead of resuming this legacy state");
+  }
+  if (typeof state.profile !== "object" || Array.isArray(state.profile)) {
+    throw new Error("Corrupt run state: profile must be an object");
+  }
+  if (typeof state.profile.name !== "string" || state.profile.name.trim() === "") {
+    throw new Error("Corrupt run state: profile.name must be a non-empty string");
+  }
+  if (!state.profile.flags || typeof state.profile.flags !== "object" || Array.isArray(state.profile.flags)) {
+    throw new Error("Corrupt run state: profile.flags must be an object");
+  }
+  resolveFeatures(state.profile.flags);
+  validateDigest("agentBehaviorFingerprint", state.agentBehaviorFingerprint);
+  validateDigest("runBehaviorFingerprint", state.runBehaviorFingerprint);
+}
+
+function validateDigest(field: string, value: unknown): void {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error(`Corrupt run state: ${field} must be a 64-character SHA-256 digest`);
   }
 }
 

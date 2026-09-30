@@ -4,6 +4,8 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { APIConnectionError } from "openai";
 import { PlanController } from "./planning.js";
+import { agentBehaviorFingerprint, fingerprintOf } from "./fingerprint.js";
+import { BUDGET_NOTICE_TEMPLATE, CACHE_ISOLATION_TEMPLATE, CLOSEOUT_NOTICE_TEMPLATE, OUTPUT_LIMIT_NUDGE, TEXT_ONLY_NUDGE } from "./behaviorText.js";
 import { AgentEvent, emitAgentEvent, summarizeEventArguments, summarizeToolOutcome, toolSucceeded } from "./events.js";
 import type { AuthorizationRequest, PermissionMode } from "../policy/permissions.js";
 import { CheckpointStore } from "../runtime/checkpoints.js";
@@ -24,6 +26,7 @@ import { isProtectedRepoPath, resolveInsideRepo, shouldSkipDir } from "../tools/
 import { detectTestCommand } from "../tools/testCommand.js";
 
 export type { ResponsesClient } from "../providers/index.js";
+export { BUDGET_NOTICE_TEMPLATE, CACHE_ISOLATION_TEMPLATE, CLOSEOUT_NOTICE_TEMPLATE, OUTPUT_LIMIT_NUDGE, TEXT_ONLY_NUDGE } from "./behaviorText.js";
 
 export type RunAgentOptions = {
   task: string;
@@ -90,13 +93,7 @@ const DEFAULT_USAGE: RunUsage = {
   reasoningTokens: 0,
   wallTimeMs: 0
 };
-export const TEXT_ONLY_NUDGE = "A plain assistant message does not complete the task. Call the next tool you need, or call finish_task once every plan step is complete and the latest change is verified.";
-export const OUTPUT_LIMIT_NUDGE = "Your previous response hit the output limit before any tool call. Continue by calling the next tool you need; keep reasoning brief.";
-export const BUDGET_NOTICE_TEMPLATE = "Budget notice: {percent}% of the run budget is used (rounds {rounds}/{maxSteps}, input tokens {input}/{maxInput}, tool calls {tools}/{maxTools}). Every round resends the whole history, so the remaining rounds are the most expensive. If the latest change is verified and the task is done, mark the remaining plan steps completed with evidence and call finish_task; otherwise make the smallest next change that can be verified.";
-export const CLOSEOUT_NOTICE_TEMPLATE = "Close-out notice: the latest file change (round {lastWriteRound}) has passing verification and no file has changed for {stableRounds} rounds. Budget used: {percent}% (rounds {rounds}/{maxSteps}, input tokens {input}/{maxInput}, tool calls {tools}/{maxTools}). If the task is complete, mark the remaining plan steps completed with evidence and call finish_task now instead of exploring further. If it is not complete, make the next change.";
 const BUDGET_NOTICE_THRESHOLDS = [0.5, 0.75, 0.9];
-// Only the nonce varies between runs; the behavior fingerprint covers this fixed template.
-export const CACHE_ISOLATION_TEMPLATE = "Session: <nonce>";
 const CACHE_ISOLATION_NONCE = /^[A-Za-z0-9-]{8,64}$/;
 const OBSERVATION_MASK_PROMPT_TOKENS = 48_000;
 // A dropped, refused, or timed-out connection, as Node's sockets and undici (under fetch) report it.
@@ -140,10 +137,16 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
   const executor = options.executor ?? new LocalExecutor();
   const displayRoot = resolveDisplayRoot(executor, repoRoot, options.displayRoot);
   const providerName = options.provider?.name ?? options.providerName ?? "openai";
+  // Resolve once so construction and resume identity see the same endpoint, including the
+  // OpenAI SDK's environment/default fallback. An injected provider's internals are opaque.
+  const opaqueProvider = options.provider !== undefined || (providerName === "openai" && options.client !== undefined);
+  const effectiveBaseURL = opaqueProvider ? options.baseURL :
+    (options.baseURL ?? (providerName === "deepseek" ? "https://api.deepseek.com" : process.env.OPENAI_BASE_URL?.trim())) ||
+      "https://api.openai.com/v1";
   const provider = options.provider ?? createModelProvider({
     provider: providerName,
     apiKey: options.apiKey,
-    baseURL: options.baseURL,
+    baseURL: effectiveBaseURL,
     responsesClient: options.client
   });
   const model = options.model ?? (provider.name === "deepseek" ? "deepseek-v4-pro" : process.env.OPENAI_MODEL ?? "gpt-5.5");
@@ -175,14 +178,6 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     const loaded = await RunStore.load(options.resume);
     store = loaded.store;
     restored = loaded.state;
-    validateResume(restored, {
-      task: options.task,
-      repo: repoRoot,
-      provider: provider.name,
-      model,
-      gitHead,
-      worktreeFingerprint
-    });
   } else if (persistenceEnabled) {
     store = new RunStore({ runDir: options.runDir });
   }
@@ -213,6 +208,54 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     ...(interactiveExplore && !features.exploreSubagent ? [EXPLORE_TOOL_DEFINITION] : []),
     ...(interactiveReview ? [REVIEW_CHANGES_TOOL_DEFINITION] : [])
   ];
+  let userPrompt = buildUserPrompt({
+    task: options.task,
+    repo: displayRoot,
+    testCommand: verificationCommand,
+    testTargetHint: options.testTargetHint
+  });
+  if (options.projectInstructions !== undefined) userPrompt += `\n\nProject instructions (from AGENTS.md):\n${options.projectInstructions}`;
+  if (options.completion === "answer") userPrompt += "\n\nFor this run, answer the user's question with a plain assistant message when ready. A text-only answer completes this run; finish_task is not required.";
+  const profileIdentity: AgentProfile = { name: profile.name, flags: { ...profile.flags } };
+  const behaviorFingerprint = agentBehaviorFingerprint(profile);
+  const runBehaviorFingerprint = fingerprintOf({
+    agentBehaviorFingerprint: behaviorFingerprint,
+    instructions,
+    initialUserPrompt: userPrompt,
+    extraToolDefinitions: delegatedDefinitions,
+    inference: {
+      baseURL: effectiveBaseURL ?? null,
+      thinking: options.thinking ?? "enabled",
+      reasoningEffort: options.reasoningEffort ?? "high",
+      temperature: options.temperature ?? 0.2,
+      maxTurnOutputTokens: limits.maxTurnOutputTokens
+    },
+    policy: {
+      completion: options.completion ?? "finish_task",
+      enforcePlanning,
+      permissionMode: options.mode ?? "auto",
+      allowDestructive: options.allowDestructive ?? false,
+      trustedTestCommand: options.trustedTestCommand ?? false,
+      allowTargetedVerification,
+      readOnlyTools: options.readOnlyTools ?? false
+    }
+  });
+  const persistenceIdentity = {
+    profile: profileIdentity,
+    agentBehaviorFingerprint: behaviorFingerprint,
+    runBehaviorFingerprint
+  };
+  if (restored) {
+    validateResume(restored, {
+      task: options.task,
+      repo: repoRoot,
+      provider: provider.name,
+      model,
+      gitHead,
+      worktreeFingerprint,
+      ...persistenceIdentity
+    });
+  }
   const supportsSubagents = options.subagentDepth === undefined && (features.exploreSubagent === true || interactiveExplore || interactiveReview);
   const delegatedTools: ExtraTools | undefined = options.extraTools || supportsSubagents ? {
     definitions: delegatedDefinitions,
@@ -276,14 +319,6 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     } : undefined
   });
   if (restored?.records) registry.records.push(...restored.records);
-  let userPrompt = buildUserPrompt({
-    task: options.task,
-    repo: displayRoot,
-    testCommand: verificationCommand,
-    testTargetHint: options.testTargetHint
-  });
-  if (options.projectInstructions !== undefined) userPrompt += `\n\nProject instructions (from AGENTS.md):\n${options.projectInstructions}`;
-  if (options.completion === "answer") userPrompt += "\n\nFor this run, answer the user's question with a plain assistant message when ready. A text-only answer completes this run; finish_task is not required.";
   const history = restored?.history ?? provider.initialHistory(userPrompt);
   const failureSignatures = new Map(Object.entries(restored?.failureSignatures ?? {}));
   let finalMessage = restored?.finalMessage ?? "";
@@ -307,6 +342,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
       executor: executor.kind,
       profile: profile.name,
       profileFlags: profile.flags,
+      agentBehaviorFingerprint: behaviorFingerprint,
+      runBehaviorFingerprint,
       allowTargetedVerification,
       provider: provider.name,
       model,
@@ -352,6 +389,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             gitHead,
             provider: provider.name,
             model,
+            ...persistenceIdentity,
             history,
             plan: plan.snapshot(),
             usage,
@@ -367,7 +405,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         }
       }
 
-      if (features.budgetNotices && enforcePlanning && options.subagentDepth === undefined && usage.modelRounds > 0) {
+      if (features.budgetNotices && enforcePlanning && options.completion !== "answer" && options.subagentDepth === undefined && usage.modelRounds > 0) {
         const used = Math.min(1, Math.max(0,
           usedRounds(usage) / limits.maxSteps,
           usage.toolCalls / limits.maxToolCalls,
@@ -382,8 +420,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         const snapshot = plan.snapshot();
         // lastWriteRound counts this run's own model rounds, so sub-agent rounds must not make a change look stable.
         const stableRounds = usage.modelRounds - budgetNoticeState.lastWriteRound;
-        const closeout = snapshot.status === "active" && snapshot.writeRevision > 0 &&
-          snapshot.validatedWriteRevision === snapshot.writeRevision && stableRounds >= 3 &&
+        const closeout = (snapshot.status === "active" || snapshot.status === "completed") && !snapshot.needsReplan &&
+          snapshot.validatedWriteRevision === snapshot.writeRevision && snapshot.validatedWriteRevision >= 0 && stableRounds >= 3 &&
           budgetNoticeState.closeoutNoticeRevision !== snapshot.writeRevision;
         if (closeout || level > budgetNoticeState.budgetNoticeLevel) {
           const text = renderBudgetNotice(closeout ? CLOSEOUT_NOTICE_TEMPLATE : BUDGET_NOTICE_TEMPLATE, {
@@ -406,6 +444,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             gitHead,
             provider: provider.name,
             model,
+            ...persistenceIdentity,
             history,
             plan: snapshot,
             usage,
@@ -424,6 +463,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             used,
             level,
             writeRevision: snapshot.writeRevision,
+            validatedWriteRevision: snapshot.validatedWriteRevision,
+            planStatus: snapshot.status,
+            needsReplan: snapshot.needsReplan,
             lastWriteRound: budgetNoticeState.lastWriteRound
           });
         }
@@ -447,6 +489,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
       const latencyMs = Date.now() - turnStarted;
       usage.modelRounds += 1;
       addUsage(usage, turn.usage);
+      usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
       previousPromptTokens = turn.usage.inputTokens;
       history.push(...turn.historyItems);
       if (turn.message) finalMessage = turn.message;
@@ -497,6 +540,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
         break;
       }
 
+      // The current parent response was already admitted by the outer model-round gate. Its
+      // ordinary tools remain executable at the limit; only new child rounds can consume
+      // the remaining shared allowance during this batch.
+      const subagentRoundsBeforeTools = usage.subagentRounds ?? 0;
       for (let callIndex = 0; callIndex < turn.toolCalls.length; callIndex += 1) {
         const call = turn.toolCalls[callIndex]!;
         if (options.mode !== undefined && options.signal?.aborted) {
@@ -506,16 +553,22 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           shouldStop = true;
           break;
         }
-        if (usage.toolCalls >= limits.maxToolCalls) {
+        usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
+        const beforeToolBudget = (usage.subagentRounds ?? 0) > subagentRoundsBeforeTools && usedRounds(usage) >= limits.maxSteps
+          ? "step_budget"
+          : budgetReason(usage, limits, options.signal);
+        if (beforeToolBudget) {
           appendSkippedToolResults(
             provider,
             history,
             turn.toolCalls.slice(callIndex),
-            "Run stopped before tool execution: tool budget exhausted",
+            beforeToolBudget === "cancelled"
+              ? "Run cancelled before tool execution"
+              : budgetStopMessage(beforeToolBudget),
             features.compactObservations
           );
-          status = "budget_exhausted";
-          stopReason = "tool_budget";
+          status = statusForReason(beforeToolBudget);
+          stopReason = beforeToolBudget;
           shouldStop = true;
           break;
         }
@@ -591,8 +644,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           shouldStop = true;
         }
         usage.wallTimeMs = (restored?.usage.wallTimeMs ?? 0) + (Date.now() - invocationStarted - observerTimeMs);
-        if (!shouldStop && usage.subagentRounds !== undefined) {
-          const sharedBudget = usedRounds(usage) >= limits.maxSteps
+        if (!shouldStop) {
+          const sharedBudget = (usage.subagentRounds ?? 0) > subagentRoundsBeforeTools && usedRounds(usage) >= limits.maxSteps
             ? "step_budget"
             : budgetReason(usage, limits, options.signal);
           if (sharedBudget) {
@@ -615,6 +668,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
           gitHead,
           provider: provider.name,
           model,
+          ...persistenceIdentity,
           history: checkpointHistory,
           plan: plan.snapshot(),
           usage,
@@ -636,7 +690,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
             options.mode !== undefined && stopReason === "cancelled"
               ? "Run cancelled before tool execution"
               : status === "budget_exhausted"
-                ? `Run stopped before tool execution: ${stopReason}`
+                ? budgetStopMessage(stopReason)
                 : "Run stopped after explicit finish",
             features.compactObservations
           );
@@ -682,6 +736,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunReport> {
     gitHead,
     provider: provider.name,
     model,
+    ...persistenceIdentity,
     history,
     plan: plan.snapshot(),
     usage,
@@ -789,6 +844,10 @@ function statusForReason(reason: StopReason): RunStatus {
   return "failed";
 }
 
+function budgetStopMessage(reason: StopReason): string {
+  return `Run stopped before tool execution: ${reason === "tool_budget" ? "tool budget exhausted" : reason}`;
+}
+
 function addUsage(target: RunUsage, value: RunUsage | any): void {
   target.inputTokens += value.inputTokens ?? 0;
   target.outputTokens += value.outputTokens ?? 0;
@@ -887,9 +946,21 @@ function validateResume(
     model: string;
     gitHead: string | null;
     worktreeFingerprint: string | null;
+    profile: AgentProfile;
+    agentBehaviorFingerprint: string;
+    runBehaviorFingerprint: string;
   }
 ): void {
   if (state.status === "success") throw new Error("Completed runs cannot be resumed");
+  if (state.profile.name !== expected.profile.name || fingerprintOf(state.profile.flags) !== fingerprintOf(expected.profile.flags)) {
+    throw new Error("Resume profile does not match the saved profile");
+  }
+  if (state.agentBehaviorFingerprint !== expected.agentBehaviorFingerprint) {
+    throw new Error("Resume agent behavior does not match the saved run; start a new run with the current agent behavior");
+  }
+  if (state.runBehaviorFingerprint !== expected.runBehaviorFingerprint) {
+    throw new Error("Resume run behavior does not match the saved prompts, tools, inference settings, or verification policy; use the original settings or start a new run");
+  }
   if (state.task !== expected.task) throw new Error("Resume task does not match the saved task");
   if (state.repo !== expected.repo) throw new Error("Resume repository does not match the saved repository");
   if (state.provider !== expected.provider || state.model !== expected.model) {
@@ -992,6 +1063,8 @@ function compactPlan(plan: PlanSnapshot): Record<string, unknown> {
     revision: plan.revision,
     status: plan.status,
     needsReplan: plan.needsReplan,
+    writeRevision: plan.writeRevision,
+    validatedWriteRevision: plan.validatedWriteRevision,
     steps: plan.steps.map((step) => ({ id: step.id, status: step.status }))
   };
 }

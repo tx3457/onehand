@@ -137,13 +137,63 @@ describe("budget notices", () => {
 
     const closeouts = notices(requests.at(-1)!.history).filter((message) => message.startsWith("Close-out notice:"));
     expect(closeouts).toHaveLength(2);
-    expect(closeouts[0]).toMatch(/^Close-out notice: the latest file change \(round 2\).*no file has changed for 3 rounds\./);
-    expect(closeouts[1]).toMatch(/^Close-out notice: the latest file change \(round 7\).*no file has changed for 3 rounds\./);
+    expect(closeouts.every((text) => text.includes("tracked mutation revision has been stable for 3 rounds"))).toBe(true);
     const events = (await traceEvents(runDir)).filter((event) => event.event === "budget_notice");
     expect(events.map((event) => event.data)).toEqual([
-      expect.objectContaining({ round: 6, kind: "closeout", writeRevision: 1, lastWriteRound: 2 }),
-      expect.objectContaining({ round: 11, kind: "closeout", writeRevision: 2, lastWriteRound: 7 })
+      expect.objectContaining({ round: 6, kind: "closeout", writeRevision: 1, validatedWriteRevision: 1, planStatus: "active", needsReplan: false, lastWriteRound: 2 }),
+      expect.objectContaining({ round: 11, kind: "closeout", writeRevision: 2, validatedWriteRevision: 2, planStatus: "active", needsReplan: false, lastWriteRound: 7 })
     ]);
+  });
+
+  it.each([
+    { profile: leanNoticesProfile, round: 4, revision: 0 },
+    { profile: PROFILES["ctx-notices"], round: 6, revision: 1 }
+  ])("posts an accurate close-out for a no-edit task with $profile.name", async ({ profile, round, revision }) => {
+    const requests: ProviderRequest[] = [];
+    await runWithNotices(scriptedProvider([
+      call("set_plan", { steps: ["verify", "finish"] }, "1"),
+      call("run_tests", {}, "2"),
+      call("list_files", {}, "3"),
+      call("list_files", {}, "4"),
+      call("list_files", {}, "5"),
+      call("list_files", {}, "6"),
+      messageTurn("done")
+    ], requests), {
+      profile,
+      testCommand: "node --version",
+      maxSteps: 100,
+      maxTextOnlyNudges: 0,
+      persistence: true,
+      runDir
+    });
+
+    const closeouts = notices(requests.at(-1)!.history).filter((message) => message.startsWith("Close-out notice:"));
+    expect(closeouts).toEqual([
+      expect.stringMatching(/^Close-out notice: the current task state has passing verification and its tracked mutation revision has been stable for 3 rounds\./)
+    ]);
+    expect(closeouts[0]).not.toContain("file change");
+    const event = (await traceEvents(runDir)).find((entry) => entry.event === "budget_notice" && entry.data?.kind === "closeout");
+    expect(event?.data).toEqual(expect.objectContaining({
+      round, writeRevision: revision, validatedWriteRevision: revision, planStatus: "active", needsReplan: false
+    }));
+  });
+
+  it("posts one close-out when a verified plan is completed but finish_task is still pending", async () => {
+    const requests: ProviderRequest[] = [];
+    await runWithNotices(scriptedProvider([
+      call("set_plan", { steps: ["verify"] }, "1"),
+      call("run_tests", {}, "2"),
+      call("update_plan", { updates: [{ stepId: 1, status: "completed", evidence: "tests passed" }] }, "3"),
+      call("list_files", {}, "4"),
+      messageTurn("done")
+    ], requests), {
+      profile: leanNoticesProfile,
+      testCommand: "node --version",
+      maxSteps: 100,
+      maxTextOnlyNudges: 0
+    });
+
+    expect(notices(requests.at(-1)!.history).filter((message) => message.startsWith("Close-out notice:"))).toHaveLength(1);
   });
 
   it("counts only the parent's own model rounds toward close-out stability", async () => {
@@ -187,7 +237,7 @@ describe("budget notices", () => {
     // After the explore round the parent has used 4 rounds (7 with the child's): the write in round 2 is 2 rounds old, not 5.
     expect(notices(requests[4]!.history)).toEqual([]);
     expect(notices(requests[5]!.history)).toEqual([
-      expect.stringMatching(/^Close-out notice: the latest file change \(round 2\).*no file has changed for 3 rounds\./)
+      expect.stringMatching(/^Close-out notice: the current task state has passing verification and its tracked mutation revision has been stable for 3 rounds\./)
     ]);
   });
 
@@ -201,21 +251,21 @@ describe("budget notices", () => {
       ]
     },
     {
-      name: "no file has been changed",
+      name: "replanning is required",
       turns: [
         call("set_plan", { steps: ["inspect"] }, "1"),
-        call("run_tests", {}, "2"),
-        call("list_files", {}, "3"), call("list_files", {}, "4"), call("list_files", {}, "5"), call("list_files", {}, "6")
+        call("read_file", { path: "missing.txt" }, "2"),
+        call("read_file", { path: "missing.txt" }, "3"),
+        call("run_tests", {}, "4"),
+        call("list_files", {}, "5"), call("list_files", {}, "6"), call("list_files", {}, "7")
       ]
     },
     {
-      name: "the plan is no longer active",
+      name: "the plan is blocked",
       turns: [
-        call("set_plan", { steps: ["edit"] }, "1"),
-        call("replace_text", { path: "value.txt", oldText: "old", newText: "changed" }, "2"),
-        call("run_tests", {}, "3"),
-        call("update_plan", { updates: [{ stepId: 1, status: "completed", evidence: "verified" }] }, "4"),
-        call("list_files", {}, "5"), call("list_files", {}, "6"), call("list_files", {}, "7")
+        call("set_plan", { steps: ["verify"] }, "1"),
+        call("run_tests", {}, "2"),
+        call("update_plan", { updates: [{ stepId: 1, status: "blocked", evidence: "external blocker" }] }, "3")
       ]
     }
   ])("does not post a close-out notice when $name", async ({ turns }) => {
@@ -287,6 +337,22 @@ describe("budget notices", () => {
     });
     expect(notices(requests.at(-1)!.history)).toEqual([]);
     expect((await traceEvents(runDir)).filter((event) => event.event === "budget_notice")).toEqual([]);
+  });
+
+  it("does not post notices for answer-mode runs", async () => {
+    const requests: ProviderRequest[] = [];
+    await runWithNotices(scriptedProvider([
+      call("set_plan", { steps: ["answer"] }, "1"),
+      call("run_tests", {}, "2"),
+      call("list_files", {}, "3"),
+      messageTurn("answer")
+    ], requests), {
+      completion: "answer",
+      profile: leanNoticesProfile,
+      testCommand: "node --version",
+      maxSteps: 4
+    });
+    expect(notices(requests.at(-1)!.history)).toEqual([]);
   });
 
   it("persists a notice before the model call and restores its counters without duplicating it", async () => {

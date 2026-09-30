@@ -1,0 +1,7 @@
+// Shared behavior text has no runtime imports so fingerprinting cannot create a runner cycle.
+export const TEXT_ONLY_NUDGE = "A plain assistant message does not complete the task. Call the next tool you need, or call finish_task once every plan step is complete and the latest change is verified.";
+export const OUTPUT_LIMIT_NUDGE = "Your previous response hit the output limit before any tool call. Continue by calling the next tool you need; keep reasoning brief.";
+export const BUDGET_NOTICE_TEMPLATE = "Budget notice: {percent}% of the run budget is used (rounds {rounds}/{maxSteps}, input tokens {input}/{maxInput}, tool calls {tools}/{maxTools}). Every round resends the whole history, so the remaining rounds are the most expensive. If the latest change is verified and the task is done, mark the remaining plan steps completed with evidence and call finish_task; otherwise make the smallest next change that can be verified.";
+export const CLOSEOUT_NOTICE_TEMPLATE = "Close-out notice: the current task state has passing verification and its tracked mutation revision has been stable for {stableRounds} rounds. Budget used: {percent}% (rounds {rounds}/{maxSteps}, input tokens {input}/{maxInput}, tool calls {tools}/{maxTools}). If the task is complete, mark the remaining plan steps completed with evidence and call finish_task now instead of exploring further. If it is not complete, make the next change.";
+// Only the nonce varies between runs; the behavior fingerprint covers this fixed template.
+export const CACHE_ISOLATION_TEMPLATE = "Session: <nonce>";

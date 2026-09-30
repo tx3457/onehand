@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { agentBehaviorFingerprint, fingerprintOf } from "../src/agent/fingerprint.js";
 import { PROFILES, resolveFeatures, resolveProfile } from "../src/agent/profile.js";
 import * as prompts from "../src/agent/prompt.js";
-import * as runner from "../src/agent/runner.js";
+import * as behaviorText from "../src/agent/behaviorText.js";
 
 const BUDGET_NOTICE_PROMPT = "- The runtime posts budget notices as user messages: the share of the run budget used, and whether the latest change is verified and stable. Every round resends the whole history, so late rounds cost the most. When a notice says the latest change is verified and stable and the task is done, mark the remaining plan steps completed with evidence and call finish_task instead of exploring further.";
 
@@ -45,8 +45,8 @@ describe("agentBehaviorFingerprint", () => {
   it("hashes notice templates only for profiles that enable notices", () => {
     const baseline = agentBehaviorFingerprint(PROFILES.ctx);
     const notices = agentBehaviorFingerprint(PROFILES["ctx-notices"]);
-    const template = vi.spyOn(runner, "BUDGET_NOTICE_TEMPLATE", "get")
-      .mockReturnValue("changed notice template" as unknown as typeof runner.BUDGET_NOTICE_TEMPLATE);
+    const template = vi.spyOn(behaviorText, "BUDGET_NOTICE_TEMPLATE", "get")
+      .mockReturnValue("changed notice template" as unknown as typeof behaviorText.BUDGET_NOTICE_TEMPLATE);
     try {
       expect(agentBehaviorFingerprint(PROFILES.ctx)).toBe(baseline);
       expect(agentBehaviorFingerprint(PROFILES["ctx-notices"])).not.toBe(notices);

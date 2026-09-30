@@ -97,6 +97,36 @@ describe("sub-agents", () => {
     expect(report.usage).toMatchObject({ modelRounds: 1, subagentRounds: 2, toolCalls: 3 });
   });
 
+  it("executes all ordinary tools from the last allowed parent turn after earlier child usage", async () => {
+    let parentRounds = 0;
+    let childRounds = 0;
+    const events: AgentEvent[] = [];
+    const provider = providerFor(async (request) => {
+      if (request.instructions.includes("concise report")) {
+        childRounds += 1;
+        return textTurn("Found the answer.", 1, 1);
+      }
+      parentRounds += 1;
+      if (parentRounds === 1) return toolTurn("explore", { question: "Locate the answer" }, "explore", 1, 1);
+      if (parentRounds > 2) throw new Error("No model round remains");
+      return multiToolTurn([
+        ["read_file", { path: "answer.txt" }, "last-read"],
+        ["git_status", {}, "last-status"]
+      ], 1, 1);
+    });
+    const report = await runAgent({
+      task: "inspect", repoPath: repo, provider,
+      profile: { name: "explore-test", flags: { exploreSubagent: true } },
+      enforcePlanning: false, persistence: false, maxSteps: 3,
+      onEvent: (event) => events.push(event)
+    });
+    expect(report).toMatchObject({ status: "budget_exhausted", stopReason: "step_budget",
+      usage: { modelRounds: 2, subagentRounds: 1, toolCalls: 3 } });
+    expect(parentRounds + childRounds).toBe(3);
+    expect(events.filter((event) => event.type === "tool_finished").map((event) => [event.name, event.ok]))
+      .toEqual([["explore", true], ["read_file", true], ["git_status", true]]);
+  });
+
   it("does not expose write tools or recursive sub-agents to a child", async () => {
     const observations: string[] = [];
     let childRound = 0;

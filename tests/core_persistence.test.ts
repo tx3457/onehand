@@ -31,6 +31,9 @@ describe("run persistence", () => {
       worktreeFingerprint: "def",
       provider: "deepseek",
       model: "deepseek-v4-pro",
+      profile: { name: "baseline", flags: {} },
+      agentBehaviorFingerprint: "a".repeat(64),
+      runBehaviorFingerprint: "b".repeat(64),
       history: [{ role: "user", content: "Bearer secret-token-value and sk-super-secret" }],
       plan: { revision: 0, status: "unset", steps: [], needsReplan: false, writeRevision: 0, validatedWriteRevision: 0 },
       usage: { modelRounds: 0, toolCalls: 0, inputTokens: 0, outputTokens: 0, cacheHitInputTokens: 0, cacheMissInputTokens: 0, totalTokens: 0, wallTimeMs: 0 },
@@ -111,6 +114,18 @@ describe("run persistence", () => {
     await new RunStore({ runId: "run-corrupt", runDir }).save(stateWith({ runId: "run-corrupt", usage }));
     await expect(RunStore.load(runDir)).rejects.toThrow("Corrupt run state: usage.inputTokens is not a number");
   });
+
+  it.each([
+    ["profile", { profile: { name: "", flags: {} } }, /profile\.name must be a non-empty string/],
+    ["profile flags", { profile: { name: "ctx", flags: { typo: true } } }, /Unknown agent feature: typo/],
+    ["agent fingerprint", { agentBehaviorFingerprint: "not-a-digest" }, /agentBehaviorFingerprint must be a 64-character SHA-256 digest/],
+    ["run fingerprint", { runBehaviorFingerprint: "not-a-digest" }, /runBehaviorFingerprint must be a 64-character SHA-256 digest/]
+  ])("rejects corrupt persisted %s identity", async (_name, override, expected) => {
+    const runDir = await makeTempDir();
+    dirs.push(runDir);
+    await new RunStore({ runId: "run-corrupt-identity", runDir }).save(stateWith(override as Partial<PersistedRunState>));
+    await expect(RunStore.load(runDir)).rejects.toThrow(expected);
+  });
 });
 
 function stateWith(overrides: Partial<PersistedRunState>): PersistedRunState {
@@ -123,6 +138,9 @@ function stateWith(overrides: Partial<PersistedRunState>): PersistedRunState {
     worktreeFingerprint: "def",
     provider: "deepseek",
     model: "deepseek-v4-pro",
+    profile: { name: "baseline", flags: {} },
+    agentBehaviorFingerprint: "a".repeat(64),
+    runBehaviorFingerprint: "b".repeat(64),
     history: [],
     plan: { revision: 0, status: "unset", steps: [], needsReplan: false, writeRevision: 0, validatedWriteRevision: 0 },
     usage: { modelRounds: 0, toolCalls: 0, inputTokens: 0, outputTokens: 0, cacheHitInputTokens: 0, cacheMissInputTokens: 0, totalTokens: 0, wallTimeMs: 0 },
