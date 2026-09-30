@@ -6,9 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-01
+
 ### Added
 
-- Added the opt-in `budgetNotices` flag and experimental E11 `ctx-notices` and `ctx-sandbox-notices` profiles. E11 has not yet been evaluated, and the local default remains `ctx`.
+- Added persistent chat sessions. `--session-dir` and `--resume` restore the saved configuration, the unfinished task, cumulative usage and its first checkpoint, and `/discard` archives an unfinished task. After a crash in which a provider request may already have started, chat refuses to replay it.
+- Added an exclusive per-repository chat lock kept in a private Git store outside the repository. Only a confirmed-dead owner on the same host can be reclaimed, and the lock error prints a command that clears a stale lock. Checkpoint operations serialize across processes.
+- Added `onehand doctor`, which runs fixed Git and rg probes and can check that a provider key is present, without model calls. Missing Git exits nonzero.
+- Added the opt-in `budgetNotices` flag and the experimental E11 `ctx-notices` and `ctx-sandbox-notices` profiles. E11 has not been evaluated, and the local default remains `ctx`. Its development protocol is prepared in `docs/benchmarks/2026-09-30-e11/`.
+- Evaluation comparisons now report `resolvedAndFinished` and `resolvedBudgetExhausted`, treat missing telemetry as unknown, and withhold significance and non-inferiority decisions for incomplete windows.
+
+### Changed
+
+- Raised the local `run` and `chat` default budgets to 60 rounds, 120 tool calls, 2,000,000 input tokens, 100,000 output tokens and 30 minutes. These limits cover 112 of the 144 resolved `ctx-sandbox` runs in the 2026-09-26 window, where the previous defaults covered 20. Library defaults are unchanged.
+- Resume state schema v4 binds the profile and the behavior identity: effective prompts, tools, inference settings, test command and verification policy. Legacy states are rejected, not migrated.
+- Budgets are now checked at tool boundaries, including time spent in the preceding model call or tool. Skipped calls keep paired results.
+- JavaScript test detection requires a non-empty `scripts.test` and follows `packageManager` or an unambiguous lockfile. Python detection selects pytest only from `pytest.ini` or `[tool.pytest.ini_options]`; other Python projects need `--test`.
+- The path guard also rejects symlinks that resolve to protected files.
 
 ### Fixed
 

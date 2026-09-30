@@ -2,7 +2,7 @@
 
 [Back to README](../README.md)
 
-Line anchors match release v0.3.0. Links name a function or identifier as well as its line,
+Line anchors match release v0.4.0. Links name a function or identifier as well as its line,
 so they stay findable if lines move.
 
 ## Overview
@@ -23,16 +23,16 @@ See [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/tools
 | `src/types.ts` | Shared run, plan, command, and result shapes: [`RunReport`](../src/types.ts#L79). |
 | `src/agent/runner.ts` | Model rounds, tool observations, budgets, and final report: [`runAgent`](../src/agent/runner.ts#L130). |
 | `src/agent/planning.ts` | Plan transitions and completion checks: [`PlanController`](../src/agent/planning.ts#L13). |
-| `src/agent/prompt.ts`, `profile.ts`, `localProfile.ts` | Prompt templates and feature selection: [`effectiveSystemPrompt`](../src/agent/prompt.ts#L17), [`PROFILES`](../src/agent/profile.ts#L22), [`resolveLocalProfile`](../src/agent/localProfile.ts#L3). |
-| `src/agent/persistence.ts`, `fingerprint.ts` | Saved runs and behavior identity: [`RunStore`](../src/agent/persistence.ts#L41), [`agentBehaviorFingerprint`](../src/agent/fingerprint.ts#L18). |
+| `src/agent/prompt.ts`, `profile.ts`, `localProfile.ts` | Prompt templates and feature selection: [`effectiveSystemPrompt`](../src/agent/prompt.ts#L19), [`PROFILES`](../src/agent/profile.ts#L23), [`resolveLocalProfile`](../src/agent/localProfile.ts#L3). |
+| `src/agent/persistence.ts`, `fingerprint.ts` | Saved runs and behavior identity: [`RunStore`](../src/agent/persistence.ts#L48), [`agentBehaviorFingerprint`](../src/agent/fingerprint.ts#L25). |
 | `src/agent/events.ts`, `projectMemory.ts`, `subagents.ts` | Observer events, project instructions, and child runs: [`AgentEvent`](../src/agent/events.ts#L5), [`loadProjectInstructions`](../src/agent/projectMemory.ts#L8), [`runSubagent`](../src/agent/subagents.ts#L50). |
 | `src/providers/` | Provider adapters and history masking: [`createModelProvider`](../src/providers/index.ts#L7), [`maskProviderHistory`](../src/providers/historyMasking.ts#L18). |
 | `src/tools/registry.ts`, `schema.ts`, `render.ts` | Tool definitions, dispatch, validation, observations: [`createToolRegistry`](../src/tools/registry.ts#L50), [`parseAndValidateArgs`](../src/tools/schema.ts#L17), [`renderToolResult`](../src/tools/render.ts#L6). |
-| `src/tools/fileTools.ts`, `git.ts`, `testCommand.ts` | Repository inspection/editing, Git evidence, test detection: [`readRepoFile`](../src/tools/fileTools.ts#L158), [`gitDiff`](../src/tools/git.ts#L62), [`detectTestCommand`](../src/tools/testCommand.ts#L16). |
+| `src/tools/fileTools.ts`, `git.ts`, `testCommand.ts` | Repository inspection/editing, Git evidence, test detection: [`readRepoFile`](../src/tools/fileTools.ts#L158), [`gitDiff`](../src/tools/git.ts#L62), [`detectTestCommand`](../src/tools/testCommand.ts#L33). |
 | `src/tools/pathGuard.ts`, `command.ts` | Path confinement and command policy: [`resolveSafeRepoPath`](../src/tools/pathGuard.ts#L38), [`commandPolicyError`](../src/tools/command.ts#L166). |
-| `src/runtime/` | Command execution, bounded capture, shadow Git: [`LocalExecutor`](../src/runtime/executor.ts#L42), [`OutputCapture`](../src/runtime/outputCapture.ts#L9), [`CheckpointStore`](../src/runtime/checkpoints.ts#L23). |
+| `src/runtime/` | Command execution, bounded capture, shadow Git: [`LocalExecutor`](../src/runtime/executor.ts#L43), [`OutputCapture`](../src/runtime/outputCapture.ts#L9), [`CheckpointStore`](../src/runtime/checkpoints.ts#L25). |
 | `src/policy/permissions.ts`, `src/mcp/` | Approval decisions and MCP connections: [`PermissionEngine`](../src/policy/permissions.ts#L58), [`McpManager`](../src/mcp/manager.ts#L31). |
-| `src/repl/` | Chat session, input, and event rendering: [`runRepl`](../src/repl/index.ts#L54), [`ReplInput`](../src/repl/input.ts#L7), [`ReplRenderer`](../src/repl/renderer.ts#L18). |
+| `src/repl/` | Chat session, input, and event rendering: [`runRepl`](../src/repl/index.ts#L71), [`ReplInput`](../src/repl/input.ts#L7), [`ReplRenderer`](../src/repl/renderer.ts#L18). |
 | `src/web/` | Read-only HTTP UI, artifact readers, and browser assets: [`startWebUi`](../src/web/server.ts#L18), [`ConfinedDirectory`](../src/web/files.ts#L40), [`WEB_HTML`](../src/web/assets.ts#L1). |
 | `src/pricing.ts`, `src/utils/truncate.ts` | Usage-cost arithmetic and byte-aware truncation: [`estimateCost`](../src/pricing.ts#L56), [`truncateText`](../src/utils/truncate.ts#L3). |
 | `eval/run.ts`, `core.ts` | Synthetic evaluation orchestration and shared concurrent scheduling: [`runEvaluation`](../eval/run.ts#L64), [`runJobs`](../eval/core.ts#L77). |
@@ -63,12 +63,12 @@ See [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/tools
 4. **Assemble instructions and history.** The profile selects the system prompt; the user
    prompt contains task, model-visible repository root, test command, and optional targets.
    A fresh run uses `provider.initialHistory`; resume uses saved history. Project instructions
-   are appended only when the caller supplies them. [`src/agent/prompt.ts` `effectiveSystemPrompt`](../src/agent/prompt.ts#L17),
-   [`src/agent/prompt.ts` `buildUserPrompt`](../src/agent/prompt.ts#L34), [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130)
+   are appended only when the caller supplies them. [`src/agent/prompt.ts` `effectiveSystemPrompt`](../src/agent/prompt.ts#L19),
+   [`src/agent/prompt.ts` `buildUserPrompt`](../src/agent/prompt.ts#L37), [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130)
 5. **Start a round.** Check aggregate budgets, optionally mask old observations, then call
    the provider with history, instructions, tool schemas, and remaining output allowance.
-   Retry handling wraps the provider call. [`src/agent/runner.ts` `budgetReason`](../src/agent/runner.ts#L687),
-   [`src/agent/runner.ts` `completeWithRetry`](../src/agent/runner.ts#L642)
+   Retry handling wraps the provider call. [`src/agent/runner.ts` `budgetReason`](../src/agent/runner.ts#L829),
+   [`src/agent/runner.ts` `completeWithRetry`](../src/agent/runner.ts#L774)
 6. **Normalize the response.** Adapters return replayable history items, text, usage, and
    `{id, name, arguments}` calls. The runner appends model history before executing calls,
    charges usage, checks budgets again, and processes calls sequentially.
@@ -83,7 +83,7 @@ See [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/tools
    arguments, and policy before executor dispatch. Writes and test verification update the
    plan's revision counters. [`src/tools/pathGuard.ts` `resolveSafeRepoPath`](../src/tools/pathGuard.ts#L38),
    [`src/tools/registry.ts` `validateCommandPaths`](../src/tools/registry.ts#L562),
-   [`src/tools/command.ts` `commandPolicyError`](../src/tools/command.ts#L166), [`src/runtime/executor.ts` `LocalExecutor`](../src/runtime/executor.ts#L42)
+   [`src/tools/command.ts` `commandPolicyError`](../src/tools/command.ts#L166), [`src/runtime/executor.ts` `LocalExecutor`](../src/runtime/executor.ts#L43)
 9. **Return an observation.** `compactObservations` selects bounded plain-text rendering;
    otherwise the registry result becomes indented JSON. The provider wraps the observation
    with the matching call ID, and the runner appends it to history, records failures, traces
@@ -97,8 +97,8 @@ See [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/tools
 11. **Persist and report.** The runner collects Git status/diff and executed command/test
     records, saves final state, emits `run_finished`, and returns `RunReport`. The CLI prints
     JSON or a human report, optionally writes `--report`, and exits nonzero unless successful.
-    [`src/agent/runner.ts` `saveCheckpoint`](../src/agent/runner.ts#L885),
-    [`src/cli.ts` `printHumanReport`](../src/cli.ts#L189), [`src/cli.ts` `program`](../src/cli.ts#L22)
+    [`src/agent/runner.ts` `saveCheckpoint`](../src/agent/runner.ts#L1043),
+    [`src/cli.ts` `printHumanReport`](../src/cli.ts#L215), [`src/cli.ts` `program`](../src/cli.ts#L22)
 
 ### Round loop
 
@@ -127,7 +127,7 @@ flowchart TD
 
 The successful path below is `run_command` with planning enforced and no interactive
 authorization hook. Rejection paths return an error observation before process launch.
-Sources: [`src/tools/registry.ts` `execute`](../src/tools/registry.ts#L103), [`src/runtime/executor.ts` `LocalExecutor`](../src/runtime/executor.ts#L42).
+Sources: [`src/tools/registry.ts` `execute`](../src/tools/registry.ts#L103), [`src/runtime/executor.ts` `LocalExecutor`](../src/runtime/executor.ts#L43).
 
 ```mermaid
 sequenceDiagram
@@ -158,14 +158,14 @@ sequenceDiagram
 | `ToolResult<T>` | Success carries `data` and optional `truncated`; failure carries `error`, `recoverable`, and optional environment classification. | [`src/types.ts` `ToolResult`](../src/types.ts#L6) |
 | `PlanSnapshot` | Revision, status, steps, `needsReplan`, `writeRevision`, `validatedWriteRevision`, optional summary. Each step has ID, description, status, and optional evidence. | [`src/types.ts` `PlanSnapshot`](../src/types.ts#L58), [`src/types.ts` `PlanStep`](../src/types.ts#L51) |
 | `RunUsage` | Model rounds, tool calls, wall time, optional child rounds, and input/output/cache/total/reasoning token counters. | [`src/types.ts` `RunUsage`](../src/types.ts#L42), [`src/types.ts` `TokenUsage`](../src/types.ts#L33) |
-| `PersistedRunState` | Version/run identity; task/repo/HEAD/worktree fingerprint; provider/model/history; plan/usage/records; hashed failure counts; message/status/reason; nudge/masking state and timestamps. | [`src/agent/persistence.ts` `PersistedRunState`](../src/agent/persistence.ts#L10) |
+| `PersistedRunState` | Version/run identity; task/repo/HEAD/worktree fingerprint; provider/model/history; plan/usage/records; hashed failure counts; message/status/reason; nudge/masking state and timestamps. | [`src/agent/persistence.ts` `PersistedRunState`](../src/agent/persistence.ts#L11) |
 | `RunReport` | Status, stop reason, changed files, commands, tests, diff, final message, usage, plan, and artifact paths. | [`src/types.ts` `RunReport`](../src/types.ts#L79) |
 
 DeepSeek history contains assistant messages with `tool_calls` and, when supplied,
 `reasoning_content`; subsequent calls replay that history. Tool observations use
 `role: "tool"` and `tool_call_id`. Raw reasoning survives the live loop, but saved state
 redacts it. Commit `6d3ead1` records that dropping it caused a second-round API rejection.
-Sources: [`src/providers/deepseek.ts` `complete`](../src/providers/deepseek.ts#L28), [`src/providers/deepseek.ts` `toolResultItem`](../src/providers/deepseek.ts#L86), [`src/agent/persistence.ts` `redactDeep`](../src/agent/persistence.ts#L116).
+Sources: [`src/providers/deepseek.ts` `complete`](../src/providers/deepseek.ts#L28), [`src/providers/deepseek.ts` `toolResultItem`](../src/providers/deepseek.ts#L86), [`src/agent/persistence.ts` `redactDeep`](../src/agent/persistence.ts#L151).
 
 OpenAI history instead holds Responses output items and `function_call_output` observations.
 The adapter removes trailing reasoning items because, as its comment states, replaying a
@@ -185,7 +185,7 @@ Two failed observations with the same normalized name/arguments require replanni
 failed tests count even when the enclosing result is `ok: true`. Signatures are hashed
 so persisted keys do not retain raw arguments, as the runner comment explains. Baseline
 updates clear the flag; E1 batch updates require nonempty evidence, without checking its
-meaning. [`src/agent/runner.ts` `stableSignature`](../src/agent/runner.ts#L747), [`src/agent/runner.ts` `isFailedObservation`](../src/agent/runner.ts#L742), [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/agent/planning.ts` `updatePlan`](../src/agent/planning.ts#L45), [`src/agent/planning.ts` `updatePlanBatch`](../src/agent/planning.ts#L68).
+meaning. [`src/agent/runner.ts` `stableSignature`](../src/agent/runner.ts#L893), [`src/agent/runner.ts` `isFailedObservation`](../src/agent/runner.ts#L888), [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/agent/planning.ts` `updatePlan`](../src/agent/planning.ts#L45), [`src/agent/planning.ts` `updatePlanBatch`](../src/agent/planning.ts#L68).
 
 <a id="completion-invariant"></a>
 
@@ -225,7 +225,7 @@ Paths must remain inside the real repository root lexically and after resolving 
 symlinks/parents. Protected components include `.git`, `.onehand`, `.env`/`.env.*`, package credential
 files, SSH private-key names, and `.pem`/`.key`/`.p12` suffixes. Command arguments and test
 targets receive additional checks. These are tool-level checks; local commands still run
-on the host. [`src/tools/pathGuard.ts` `resolveSafeRepoPath`](../src/tools/pathGuard.ts#L38), [`src/tools/pathGuard.ts` `isProtectedRepoPath`](../src/tools/pathGuard.ts#L79), [`src/tools/registry.ts` `validateTestTarget`](../src/tools/registry.ts#L545), [`src/runtime/executor.ts` `LocalExecutor`](../src/runtime/executor.ts#L42).
+on the host. [`src/tools/pathGuard.ts` `resolveSafeRepoPath`](../src/tools/pathGuard.ts#L38), [`src/tools/pathGuard.ts` `isProtectedRepoPath`](../src/tools/pathGuard.ts#L80), [`src/tools/registry.ts` `validateTestTarget`](../src/tools/registry.ts#L545), [`src/runtime/executor.ts` `LocalExecutor`](../src/runtime/executor.ts#L43).
 
 <a id="command-policy"></a>
 
@@ -254,28 +254,31 @@ The local `run` and `chat` commands default to 60 rounds, 120 tool calls, 2,000,
 runs in the 2026-09-26 window; the library defaults cover 20.
 The runner checks before/after model calls, counts failed tool calls, and caps each request's
 output allowance by remaining output tokens. Aggregate tokens are usage-based checks,
-not an advance guarantee about the next response. [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/agent/runner.ts` `budgetReason`](../src/agent/runner.ts#L687).
+not an advance guarantee about the next response. [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/agent/runner.ts` `budgetReason`](../src/agent/runner.ts#L829).
 
 The default model-call policy permits three attempts with exponential delay under one
 request deadline, retrying rate limits, server failures, and recognized connection errors.
 Environment failures stop as `runtime_error`; accepted finish, blocked plan, cancellation,
-text-only exhaustion, and step/tool/token/time exhaustion have separate stop reasons. [`src/agent/runner.ts` `completeWithRetry`](../src/agent/runner.ts#L642), [`src/agent/runner.ts` `isRetryableModelError`](../src/agent/runner.ts#L764), [`src/types.ts` `StopReason`](../src/types.ts#L19).
+text-only exhaustion, and step/tool/token/time exhaustion have separate stop reasons. [`src/agent/runner.ts` `completeWithRetry`](../src/agent/runner.ts#L774), [`src/agent/runner.ts` `isRetryableModelError`](../src/agent/runner.ts#L910), [`src/types.ts` `StopReason`](../src/types.ts#L19).
 
 <a id="persistence-resume"></a>
 
 ### Persistence, resume, and worktree fingerprint
 
-`RunStore` persists schema version 3 and defaults to `~/.onehand/runs/<runId>`. State uses atomic rename and trace uses
+`RunStore` persists schema version 4 and defaults to `~/.onehand/runs/<runId>`. State uses atomic rename and trace uses
 JSONL append; directory/file modes are requested as `0700`/`0600`. Redaction filters known
 secret patterns and sensitive keys, exempting usage counters. After each tool, saved history
 includes synthetic results for still-unexecuted calls; these placeholders do not execute
-those calls on resume. [`src/agent/persistence.ts` `RunStore`](../src/agent/persistence.ts#L41), [`src/agent/persistence.ts` `redactDeep`](../src/agent/persistence.ts#L116), [`src/agent/runner.ts` `appendSkippedToolResults`](../src/agent/runner.ts#L820).
+those calls on resume. [`src/agent/persistence.ts` `RunStore`](../src/agent/persistence.ts#L48), [`src/agent/persistence.ts` `redactDeep`](../src/agent/persistence.ts#L151), [`src/agent/runner.ts` `appendSkippedToolResults`](../src/agent/runner.ts#L978).
 
 Resume rejects completed runs, task/repo/provider/model/HEAD mismatches, and unavailable or
 different worktree fingerprints. Fingerprints cover changed tracked, untracked, and selected ignored
 paths, metadata, symlink targets, and nonprotected file contents up to 1 MiB; they are not
-full content hashes for every file. Each save refreshes the fingerprint. The CLI requires
-explicit `--profile` on resume, but `validateResume` itself does not compare profile flags. [`src/agent/runner.ts` `validateResume`](../src/agent/runner.ts#L794), [`src/agent/runner.ts` `readWorktreeFingerprint`](../src/agent/runner.ts#L833), [`src/agent/runner.ts` `saveCheckpoint`](../src/agent/runner.ts#L885), [`src/cli.ts` `program`](../src/cli.ts#L22).
+full content hashes for every file. Each save refreshes the fingerprint. Schema 4 also stores
+the profile, the agent behavior fingerprint and a run behavior fingerprint of the effective
+prompts, tools, inference settings and verification policy; `validateResume` rejects any
+mismatch before a model call, and legacy states without this identity require a new run.
+Total budgets may grow on resume; the per-turn output cap is part of the identity. [`src/agent/runner.ts` `validateResume`](../src/agent/runner.ts#L940), [`src/agent/runner.ts` `readWorktreeFingerprint`](../src/agent/runner.ts#L991), [`src/agent/runner.ts` `saveCheckpoint`](../src/agent/runner.ts#L1043), [`src/cli.ts` `program`](../src/cli.ts#L22).
 
 <a id="shadow-git"></a>
 
@@ -286,7 +289,21 @@ real repository path. Snapshots exclude protected/ignored paths and files over 5
 When enabled, the runner snapshots before the first eligible mutation in a model round.
 Chat `/undo` restores the first checkpoint of its latest run; `/rewind n` selects a listed
 checkpoint. Restoration can remove files added since the target, subject to path/exclusion
-checks. It restores files, not saved model history or usage. [`src/runtime/checkpoints.ts` `CheckpointStore`](../src/runtime/checkpoints.ts#L23), [`src/runtime/checkpoints.ts` `restore`](../src/runtime/checkpoints.ts#L56), [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/repl/index.ts` `runRepl`](../src/repl/index.ts#L54).
+checks. It restores files, not saved model history or usage. [`src/runtime/checkpoints.ts` `CheckpointStore`](../src/runtime/checkpoints.ts#L25), [`src/runtime/checkpoints.ts` `restore`](../src/runtime/checkpoints.ts#L62), [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/repl/index.ts` `runRepl`](../src/repl/index.ts#L71).
+
+<a id="chat-sessions"></a>
+
+### Chat sessions and the repository lock
+
+Each chat task runs through a normal `RunStore`. `ChatSessionStore` adds an owner-only
+`session.json` outside the repository with the effective configuration, recent conversation,
+cumulative usage, the active task pointer and its first checkpoint. A task is written as
+`prepared` before and `running` after a provider request may start, so a crash in between
+fails closed instead of replaying the request; a run already saved as successful is merged
+once without replay. `/discard` writes a receipt before clearing the pointer. Chat holds an
+exclusive per-repository lock: a ref in a private bare Git store updated by compare-and-swap,
+reclaimable only when its owner is confirmed dead on the same host. The lock error prints a
+command that clears a stale lock. Checkpoint operations use a second lock scope. [`src/repl/session.ts` `ChatSessionStore`](../src/repl/session.ts#L62), [`src/runtime/repositoryLock.ts` `acquireRepositoryLock`](../src/runtime/repositoryLock.ts#L41).
 
 <a id="permissions"></a>
 
@@ -299,7 +316,7 @@ defaults to prompting in `edit` and denial in both other modes. Explicit rules c
 
 The permission engine checks deny rules, session grants, allow rules, then mode defaults.
 Chat accepts `y/yes` once or `a/always` for a session grant. The registry invokes authorization
-for delegated tools and non-read/non-plan actions. [`src/policy/permissions.ts` `resolve`](../src/policy/permissions.ts#L80), [`src/repl/index.ts` `runRepl`](../src/repl/index.ts#L54), [`src/tools/registry.ts` `execute`](../src/tools/registry.ts#L103).
+for delegated tools and non-read/non-plan actions. [`src/policy/permissions.ts` `resolve`](../src/policy/permissions.ts#L80), [`src/repl/index.ts` `runRepl`](../src/repl/index.ts#L71), [`src/tools/registry.ts` `execute`](../src/tools/registry.ts#L103).
 
 <a id="mcp"></a>
 
@@ -328,21 +345,21 @@ approved inspection commands. The parent receives the child's final message as o
 
 Children receive remaining parent budgets, capped at 20 rounds, 30 tool calls, and 400,000
 input tokens. Their rounds, calls, and tokens are added back to parent usage. Commit
-`8d8cebc` gives the reason: child work must be included in experiment cost comparisons. [`src/agent/subagents.ts` `childLimits`](../src/agent/subagents.ts#L105), [`src/agent/runner.ts` `addSubagentUsage`](../src/agent/runner.ts#L714), [`src/agent/runner.ts` `usedRounds`](../src/agent/runner.ts#L721).
+`8d8cebc` gives the reason: child work must be included in experiment cost comparisons. [`src/agent/subagents.ts` `childLimits`](../src/agent/subagents.ts#L105), [`src/agent/runner.ts` `addSubagentUsage`](../src/agent/runner.ts#L860), [`src/agent/runner.ts` `usedRounds`](../src/agent/runner.ts#L867).
 
 <a id="profiles"></a>
 
 ### Profiles and experiment flags
 
 The E-number mapping comes from commits `17843e4`, `d99265a`, and `9b7a268`.
-Flags default false; unknown keys/nonbooleans are rejected. [`src/agent/profile.ts` `resolveFeatures`](../src/agent/profile.ts#L32).
+Flags default false; unknown keys/nonbooleans are rejected. [`src/agent/profile.ts` `resolveFeatures`](../src/agent/profile.ts#L35).
 
 | Flag | Behavior change and implementation |
 | --- | --- |
 | E4 `retrieval` | Numbered file windows, long Python-file outlines, grouped/contextual search, and Git-aware listing: [`src/tools/fileTools.ts` `readRepoFileForRetrieval`](../src/tools/fileTools.ts#L403), [`src/tools/registry.ts` `toolDefinitionsFor`](../src/tools/registry.ts#L437). |
 | E3 `compactObservations` | Plain-text observations and retained failure lines in truncated test output: [`src/tools/render.ts` `renderToolResult`](../src/tools/render.ts#L6), [`src/tools/registry.ts` `execute`](../src/tools/registry.ts#L103). |
 | E5 `observationMasking` | Above 48,000 previous-turn prompt tokens, consider masking older observations/large arguments and DeepSeek reasoning; preserve recent call/result groups plus a plan/file note: [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/providers/historyMasking.ts` `maskProviderHistory`](../src/providers/historyMasking.ts#L18). |
-| E1 `leanPlanning` | Batch updates, finish-time evidence, inspection exemptions, and content-based write accounting: [`src/agent/prompt.ts` `effectiveSystemPrompt`](../src/agent/prompt.ts#L17), [`src/tools/registry.ts` `toolDefinitionsFor`](../src/tools/registry.ts#L437), [`src/tools/registry.ts` `execute`](../src/tools/registry.ts#L103). |
+| E1 `leanPlanning` | Batch updates, finish-time evidence, inspection exemptions, and content-based write accounting: [`src/agent/prompt.ts` `effectiveSystemPrompt`](../src/agent/prompt.ts#L19), [`src/tools/registry.ts` `toolDefinitionsFor`](../src/tools/registry.ts#L437), [`src/tools/registry.ts` `execute`](../src/tools/registry.ts#L103). |
 | E8 `sandboxCommands` | Docker-only expanded command policy: [`src/tools/registry.ts` `createToolRegistry`](../src/tools/registry.ts#L50), [`src/tools/command.ts` `commandPolicyError`](../src/tools/command.ts#L166). |
 | E9 `exploreSubagent` | Adds `explore` to model-visible tools and dispatches a child run: [`src/tools/registry.ts` `toolDefinitionsFor`](../src/tools/registry.ts#L437), [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130). |
 
@@ -350,7 +367,7 @@ Flags default false; unknown keys/nonbooleans are rejected. [`src/agent/profile.
 `ctx-sandbox-plan` is E4+E3+E8+E1; its `-explore` variant adds E9. `full` includes E5 and E1
 but not E9. E5 keeps recent rounds with a 48 KiB target (at least two when available, at
 most ten) and skips events saving under 32 KiB. Commit `d99265a` explains block-wise masking
-as a way to avoid rewriting cached history every round. [`src/agent/profile.ts` `PROFILES`](../src/agent/profile.ts#L22), [`src/providers/historyMasking.ts` `maskProviderHistory`](../src/providers/historyMasking.ts#L18).
+as a way to avoid rewriting cached history every round. [`src/agent/profile.ts` `PROFILES`](../src/agent/profile.ts#L23), [`src/providers/historyMasking.ts` `maskProviderHistory`](../src/providers/historyMasking.ts#L18).
 
 <a id="providers"></a>
 
@@ -381,7 +398,7 @@ failure extraction retains at most 40 lines. Combined output over 64 MiB termina
 process and marks `outputLimitExceeded`, separately from timeout. UTF-8-aware truncation
 normally limits each stream to 20 KiB; compact rendering additionally bounds the complete
 observation. Commit `9b7a268` attributes this to an unbounded-output crash and explicitly
-forbids retaining unlimited child output. [`src/runtime/outputCapture.ts` `OutputCapture`](../src/runtime/outputCapture.ts#L9), [`src/runtime/executor.ts` `spawnAndCapture`](../src/runtime/executor.ts#L214), [`src/utils/truncate.ts` `truncateCapturedText`](../src/utils/truncate.ts#L15), [`src/tools/render.ts` `renderBoundedCommand`](../src/tools/render.ts#L116).
+forbids retaining unlimited child output. [`src/runtime/outputCapture.ts` `OutputCapture`](../src/runtime/outputCapture.ts#L9), [`src/runtime/executor.ts` `spawnAndCapture`](../src/runtime/executor.ts#L222), [`src/utils/truncate.ts` `truncateCapturedText`](../src/utils/truncate.ts#L15), [`src/tools/render.ts` `renderBoundedCommand`](../src/tools/render.ts#L116).
 
 ## Evaluation subsystem
 
@@ -398,7 +415,7 @@ The runner comment states its purpose: avoid sharing provider prompt caches acro
 Admission checks the configured reservation (default: worst-case estimate) against spent
 plus in-flight reservations; retries require
 additional reservations. SWE-bench journals starts and charges unfinished reservations on
-resume. Provider-error circuit breaking prevents new starts after its configured threshold. [`eval/swebench/runInstance.ts` `newCacheIsolationNonce`](../eval/swebench/runInstance.ts#L146), [`src/agent/runner.ts` `cacheIsolationNonce`](../src/agent/runner.ts#L72), [`eval/core.ts` `runJobs`](../eval/core.ts#L77), [`eval/swebench/evaluate.ts` `runSwebenchEvaluation`](../eval/swebench/evaluate.ts#L70).
+resume. Provider-error circuit breaking prevents new starts after its configured threshold. [`eval/swebench/runInstance.ts` `newCacheIsolationNonce`](../eval/swebench/runInstance.ts#L146), [`src/agent/runner.ts` `cacheIsolationNonce`](../src/agent/runner.ts#L75), [`eval/core.ts` `runJobs`](../eval/core.ts#L77), [`eval/swebench/evaluate.ts` `runSwebenchEvaluation`](../eval/swebench/evaluate.ts#L70).
 
 ### Workspace, execution, and patch
 
@@ -429,13 +446,13 @@ bootstraps paired task clusters. Rates use B−A; efficiency comparisons use log
 Selected primary metrics receive Holm-adjusted p-values; significance also requires the
 confidence interval to exclude zero on the tested scale. Analyze instead diagnoses one
 configuration's traces: context growth, tool/governance time, repeated reads, failures,
-and stopping. [`eval/compare.ts` `compareResultSets`](../eval/compare.ts#L140), [`eval/stats.ts` `bootstrapReplicates`](../eval/stats.ts#L44), [`eval/stats.ts` `holmAdjust`](../eval/stats.ts#L79), [`eval/analyze.ts` `diagnoseRun`](../eval/analyze.ts#L68).
+and stopping. [`eval/compare.ts` `compareResultSets`](../eval/compare.ts#L145), [`eval/stats.ts` `bootstrapReplicates`](../eval/stats.ts#L44), [`eval/stats.ts` `holmAdjust`](../eval/stats.ts#L79), [`eval/analyze.ts` `diagnoseRun`](../eval/analyze.ts#L68).
 
 Manifests freeze inference settings, limits, prices, tasks/dataset identity, and fingerprints;
 SWE-bench adds variants, scheduling seed, harness version, and image IDs. Behavior fingerprints
 hash prompts, tool definitions, nudges, profile, and nonce template, excluding the nonce value.
 Source provenance hashes TypeScript under `src/` and `eval/`. Resume rejects incompatible
-manifests; comparison checks arm identity and reports incomplete/excluded data separately. [`src/agent/fingerprint.ts` `agentBehaviorFingerprint`](../src/agent/fingerprint.ts#L18), [`eval/run.ts` `evaluationProvenance`](../eval/run.ts#L151), [`eval/run.ts` `assertCompatibleManifest`](../eval/run.ts#L172), [`eval/swebench/evaluate.ts` `assertCompatibleSwebenchManifest`](../eval/swebench/evaluate.ts#L274).
+manifests; comparison checks arm identity and reports incomplete/excluded data separately. [`src/agent/fingerprint.ts` `agentBehaviorFingerprint`](../src/agent/fingerprint.ts#L25), [`eval/run.ts` `evaluationProvenance`](../eval/run.ts#L151), [`eval/run.ts` `assertCompatibleManifest`](../eval/run.ts#L172), [`eval/swebench/evaluate.ts` `assertCompatibleSwebenchManifest`](../eval/swebench/evaluate.ts#L274).
 
 ## Where to start reading
 
@@ -445,8 +462,8 @@ manifests; comparison checks arm identity and reports incomplete/excluded data s
 4. [`src/tools/registry.ts` `createToolRegistry`](../src/tools/registry.ts#L50): follow one dispatched tool.
 5. [`src/agent/planning.ts` `PlanController`](../src/agent/planning.ts#L13): inspect mutation and finish invariants.
 6. [`src/tools/pathGuard.ts` `resolveSafeRepoPath`](../src/tools/pathGuard.ts#L38): follow lexical and symlink checks.
-7. [`src/runtime/executor.ts` `spawnAndCapture`](../src/runtime/executor.ts#L214): follow output and termination handling.
-8. [`src/agent/persistence.ts` `RunStore`](../src/agent/persistence.ts#L41): connect saved history to resume validation.
-9. [`src/agent/profile.ts` `PROFILES`](../src/agent/profile.ts#L22): compare feature combinations with registry branches.
+7. [`src/runtime/executor.ts` `spawnAndCapture`](../src/runtime/executor.ts#L222): follow output and termination handling.
+8. [`src/agent/persistence.ts` `RunStore`](../src/agent/persistence.ts#L48): connect saved history to resume validation.
+9. [`src/agent/profile.ts` `PROFILES`](../src/agent/profile.ts#L23): compare feature combinations with registry branches.
 10. [`eval/swebench/runInstance.ts` `runInstance`](../eval/swebench/runInstance.ts#L169): connect agent execution to patch grading.
-11. [`eval/compare.ts` `compareResultSets`](../eval/compare.ts#L140): inspect the unit of comparison and claim gates.
+11. [`eval/compare.ts` `compareResultSets`](../eval/compare.ts#L145): inspect the unit of comparison and claim gates.

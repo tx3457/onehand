@@ -7,7 +7,7 @@ OneHand is a local coding-agent CLI for repository-scoped maintenance tasks. It 
 
 - **Verified completion:** the latest write must have passing verification, all plan steps must be complete, and the model must call `finish_task`.
 - **Runtime-enforced tool governance:** schema validation, a plan gate, path guards, command policy, and step/token/time/retry budgets.
-- **Recovery:** persisted run state and resume, redacted traces, and shadow-Git checkpoints with undo/rewind.
+- **Recovery:** persisted run state and resumable chat sessions bound to their configuration, redacted traces, and shadow-Git checkpoints with undo/rewind.
 - **Extensions:** MCP tools with permissions, plus read-only explore and review sub-agents with separate histories and shared budgets.
 - **Measured evaluation:** a pre-registered SWE-bench Verified window with explicit profiles, matched model and budgets, and dev/holdout splits.
 
@@ -78,7 +78,7 @@ OneHand is a tool-using agent, not a general-purpose sandbox. Running tests or b
 
 ## Project status
 
-The final evaluation window is complete (see Results above). Local use defaults to `ctx` (E4+E3). `ctx-sandbox` adds the Docker-only E8. E5, E1 and E9 remain explicit experiment flags that were not adopted. Checkpoints, project instructions, MCP, sub-agents, the Web UI, and the SWE-bench harness are implemented. The local CLI does not isolate repository programs, and there is no distributed execution or long-term semantic memory.
+The final evaluation window is complete (see Results above). Local use defaults to `ctx` (E4+E3). `ctx-sandbox` adds the Docker-only E8. E5, E1 and E9 remain explicit experiment flags that were not adopted. Checkpoints, persistent chat sessions, project instructions, MCP, sub-agents, the Web UI, and the SWE-bench harness are implemented. Experimental budget notices (E11) are implemented but not yet evaluated. The local CLI does not isolate repository programs, and there is no distributed execution or long-term semantic memory.
 
 ## License
 
