@@ -247,8 +247,11 @@ evaluation container. [`src/tools/registry.ts` `execute`](../src/tools/registry.
 
 ### Budgets and stop conditions
 
-Defaults are 20 aggregate rounds, 40 tool calls, 300,000 cumulative input tokens,
+Library defaults are 20 aggregate rounds, 40 tool calls, 300,000 cumulative input tokens,
 40,000 output tokens, 8,192 output tokens per turn, and 900 seconds wall time.
+The local `run` and `chat` commands default to 60 rounds, 120 tool calls, 2,000,000 input tokens,
+100,000 output tokens and 1,800 seconds. Those values cover 112 of the 144 resolved `ctx-sandbox`
+runs in the 2026-09-26 window; the library defaults cover 20.
 The runner checks before/after model calls, counts failed tool calls, and caps each request's
 output allowance by remaining output tokens. Aggregate tokens are usage-based checks,
 not an advance guarantee about the next response. [`src/agent/runner.ts` `runAgent`](../src/agent/runner.ts#L130), [`src/agent/runner.ts` `budgetReason`](../src/agent/runner.ts#L687).

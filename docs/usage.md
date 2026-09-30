@@ -65,7 +65,7 @@ onehand chat --repo /path/to/trusted/repo --mode ask \
   --provider deepseek --model deepseek-v4-pro --thinking enabled --reasoning-effort high
 ```
 
-Chat defaults to `edit` mode and the `ctx` profile. Both `run` and `chat` accept `--profile baseline`; profiles requiring Docker are rejected locally. Mode defaults are:
+Chat defaults to `edit` mode and the `ctx` profile. Per-task budgets default to 60 model rounds, 120 tool calls, 2,000,000 cumulative input tokens, 100,000 output tokens and 30 minutes, for both `run` and `chat`. They were calibrated against the 2026-09-26 evaluation: these limits cover 112 of the 144 resolved `ctx-sandbox` runs, while the earlier 20-round, 300,000-token defaults covered 20. With `deepseek-flash`, evaluation runs that used about 2,000,000 input tokens cost an estimated $0.05–0.08 each at peak prices; `deepseek-v4-pro` costs several times more. Both `run` and `chat` accept `--profile baseline`; profiles requiring Docker are rejected locally. Mode defaults are:
 
 | Mode | Read and plan | Write and execute | Completion |
 | --- | --- | --- | --- |
@@ -96,7 +96,7 @@ onehand chat --repo /path/to/repo --test "pnpm test" \
 onehand chat --repo /path/to/repo --resume "$HOME/.onehand/sessions/my-task"
 
 # Extend the cumulative task budget when the previous limit was reached.
-onehand chat --repo /path/to/repo --resume "$HOME/.onehand/sessions/my-task" --max-steps 40
+onehand chat --repo /path/to/repo --resume "$HOME/.onehand/sessions/my-task" --max-steps 90
 ```
 
 Omitted provider/model/profile/inference/test options restore their saved effective values. Explicit mismatches are rejected; total task budgets and timeouts may be adjusted, while the per-turn output cap remains part of behavior identity. API keys come from the current environment and are not saved. Declarative CLI allow/deny rules restore when omitted; explicit rule changes are rejected. Project/user permission files are loaded again, and temporary `a`/always approvals are not restored.
