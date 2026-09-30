@@ -64,6 +64,7 @@ export async function resolveSafeRepoPath(
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     throw new Error(`Path resolves outside repository root: ${inputPath}`);
   }
+  if (options.protectSecrets !== false) assertNotProtected(path.relative(root, resolved));
   return resolved;
 }
 
